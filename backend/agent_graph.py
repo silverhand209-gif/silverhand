@@ -1,4 +1,4 @@
-"""LangGraph 多智能体编排 - 小说转剧本核心引擎"""
+"""LangGraph 多智能体编排 - 小说转剧本核心引擎（支持并行 Agent）"""
 import json
 import time
 import re
@@ -6,6 +6,7 @@ from typing import TypedDict, Annotated, Sequence, Literal
 from operator import add
 
 from langgraph.graph import StateGraph, END
+from langgraph.types import Send
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
@@ -261,7 +262,7 @@ async def dialogue_agent(state: AgentState) -> AgentState:
 
 
 async def scene_agent(state: AgentState) -> AgentState:
-    """场景描述 Agent"""
+    """场景描述 Agent（与 DialogueAgent 并行，仅依赖 plot_structure）"""
     start_time = time.time()
     stage = "scene_design"
 
@@ -274,7 +275,6 @@ async def scene_agent(state: AgentState) -> AgentState:
         llm = get_llm(temperature=0.6)
         prompt = SCENE_AGENT_PROMPT.format(
             plot_structure=state.get("plot_structure", "暂无"),
-            dialogue_content=state.get("dialogue_content", "暂无"),
             rag_context=rag_context,
             json_rules=JSON_OUTPUT_RULES
         )
@@ -338,15 +338,26 @@ STAGE_ORDER = [
     "chapter_analysis",
     "character_analysis",
     "plot_structure",
-    "dialogue_generation",
-    "scene_design",
+    "dialogue_generation",  # 与 scene_design 并行
+    "scene_design",         # 与 dialogue_generation 并行
     "assembly",
     "finish"
 ]
 
 
+def after_plot_router(state: AgentState) -> Sequence[Send]:
+    """
+    PlotAgent 完成后，同时派发 DialogueAgent 和 SceneAgent 并行执行。
+    两者互不依赖，各自独立完成后汇合到 AssemblyAgent。
+    """
+    return [
+        Send("dialogue_agent", state),
+        Send("scene_agent", state),
+    ]
+
+
 def supervisor_router(state: AgentState) -> str:
-    """Supervisor 路由：根据当前阶段决定下一步"""
+    """Supervisor 路由：根据当前阶段决定下一步（线性阶段用）"""
     current = state.get("stage", "chapter_analysis")
 
     try:
@@ -362,7 +373,7 @@ def supervisor_router(state: AgentState) -> str:
     stage_to_node = {
         "chapter_analysis": "chapter_agent",
         "character_analysis": "character_agent",
-        "plot_structure": "plot_structure",
+        "plot_structure": "plot_agent",
         "dialogue_generation": "dialogue_agent",
         "scene_design": "scene_agent",
         "assembly": "assembly_agent",
@@ -373,10 +384,10 @@ def supervisor_router(state: AgentState) -> str:
 
 
 # ============================================================
-# 构建 Graph
+# 构建 Graph（并行架构）
 # ============================================================
 def build_script_graph() -> StateGraph:
-    """构建小说转剧本的 LangGraph 工作流"""
+    """构建小说转剧本的 LangGraph 工作流（DialogueAgent 与 SceneAgent 并行）"""
     workflow = StateGraph(AgentState)
 
     # 添加节点
@@ -390,12 +401,22 @@ def build_script_graph() -> StateGraph:
     # 设置入口
     workflow.set_entry_point("chapter_agent")
 
-    # 设置边（顺序执行）
+    # 线性阶段：Chapter → Character → Plot
     workflow.add_edge("chapter_agent", "character_agent")
     workflow.add_edge("character_agent", "plot_agent")
-    workflow.add_edge("plot_agent", "dialogue_agent")
-    workflow.add_edge("dialogue_agent", "scene_agent")
+
+    # 并行分叉：Plot 完成后同时启动 Dialogue 和 Scene
+    workflow.add_conditional_edges(
+        "plot_agent",
+        after_plot_router,
+        ["dialogue_agent", "scene_agent"]
+    )
+
+    # 汇合：Dialogue 和 Scene 都完成后进入 Assembly
+    workflow.add_edge("dialogue_agent", "assembly_agent")
     workflow.add_edge("scene_agent", "assembly_agent")
+
+    # 结束
     workflow.add_edge("assembly_agent", END)
 
     return workflow.compile()

@@ -127,8 +127,13 @@ export default function ProjectPage() {
         updateGenerationProgress(stage, data)
         const stepIdx = stageMap[stage]
         if (stepIdx !== undefined) {
-          setCurrentStep(stepIdx + 1)
-          setCompletedSteps(prev => [...prev, stepIdx])
+          setCompletedSteps(prev => {
+            if (prev.includes(stepIdx)) return prev  // 防止重复（并行场景）
+            const updated = [...prev, stepIdx]
+            // currentStep = 已完成数（并行阶段可能有多个同时完成）
+            setCurrentStep(updated.length)
+            return updated
+          })
         }
         if (data?.errors?.length) {
           setGenErrors(prev => [...prev, ...data.errors])
