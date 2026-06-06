@@ -97,28 +97,13 @@ cp backend/.env.example backend/.env
 
 ### 3. 启动服务
 
-**方式一：一键启动**
-
 ```bash
-# Windows
-start.bat
-
-# Linux / macOS
-# npm run dev （已内置 concurrently 同时启动前后端）
-```
-
-> `start.bat` 会自动检查环境、安装依赖、复制 `.env` 模板，然后启动前后端服务。
-
-**方式二：分别启动**
-
-```bash
-# 终端 1 — 启动后端 (端口 8000)
-cd backend
-python main.py
-
-# 终端 2 — 启动前端 (端口 5173)
 npm run dev
 ```
+
+一条命令即可同时启动后端（端口 8000）和前端（端口 5173）。
+
+> 首次使用或换新环境时，推荐先运行 `start.bat`（Windows），它会自动安装依赖并检查环境配置。
 
 ### 4. 访问应用
 
