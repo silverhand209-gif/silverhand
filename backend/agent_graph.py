@@ -2,11 +2,11 @@
 import json
 import time
 import re
+import asyncio
 from typing import TypedDict, Annotated, Sequence, Literal
 from operator import add
 
 from langgraph.graph import StateGraph, END
-from langgraph.types import Send
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
@@ -331,29 +331,34 @@ async def assembly_agent(state: AgentState) -> AgentState:
     return state
 
 
-# ============================================================
-# 路由函数：决定下一步
-# ============================================================
+async def parallel_dialogue_scene(state: AgentState) -> AgentState:
+    """
+    并行执行 DialogueAgent 和 SceneAgent。
+    两者互不依赖，使用 asyncio.gather 同时运行。
+    """
+    async def run_dialogue():
+        return await dialogue_agent(dict(state))
+
+    async def run_scene():
+        return await scene_agent(dict(state))
+
+    dialogue_state, scene_state = await asyncio.gather(run_dialogue(), run_scene())
+
+    # 合并两个并行节点的结果到 state
+    state["dialogue_content"] = dialogue_state.get("dialogue_content", "")
+    state["scene_design"] = scene_state.get("scene_design", "")
+    state["agent_logs"] = state.get("agent_logs", []) + dialogue_state.get("agent_logs", []) + scene_state.get("agent_logs", [])
+    state["errors"] = state.get("errors", []) + dialogue_state.get("errors", []) + scene_state.get("errors", [])
+
+    return state
 STAGE_ORDER = [
     "chapter_analysis",
     "character_analysis",
     "plot_structure",
-    "dialogue_generation",  # 与 scene_design 并行
-    "scene_design",         # 与 dialogue_generation 并行
+    "parallel_dialogue_scene",  # Dialogue + Scene 并行
     "assembly",
     "finish"
 ]
-
-
-def after_plot_router(state: AgentState) -> Sequence[Send]:
-    """
-    PlotAgent 完成后，同时派发 DialogueAgent 和 SceneAgent 并行执行。
-    两者互不依赖，各自独立完成后汇合到 AssemblyAgent。
-    """
-    return [
-        Send("dialogue_agent", state),
-        Send("scene_agent", state),
-    ]
 
 
 def supervisor_router(state: AgentState) -> str:
@@ -394,29 +399,18 @@ def build_script_graph() -> StateGraph:
     workflow.add_node("chapter_agent", chapter_agent)
     workflow.add_node("character_agent", character_agent)
     workflow.add_node("plot_agent", plot_agent)
-    workflow.add_node("dialogue_agent", dialogue_agent)
-    workflow.add_node("scene_agent", scene_agent)
+    # 并行 wrapper：内部用 asyncio.gather 同时跑 dialogue + scene
+    workflow.add_node("parallel_dialogue_scene", parallel_dialogue_scene)
     workflow.add_node("assembly_agent", assembly_agent)
 
     # 设置入口
     workflow.set_entry_point("chapter_agent")
 
-    # 线性阶段：Chapter → Character → Plot
+    # 线性阶段：Chapter → Character → Plot → Parallel(Dialogue + Scene) → Assembly
     workflow.add_edge("chapter_agent", "character_agent")
     workflow.add_edge("character_agent", "plot_agent")
-
-    # 并行分叉：Plot 完成后同时启动 Dialogue 和 Scene
-    workflow.add_conditional_edges(
-        "plot_agent",
-        after_plot_router,
-        ["dialogue_agent", "scene_agent"]
-    )
-
-    # 汇合：Dialogue 和 Scene 都完成后进入 Assembly
-    workflow.add_edge("dialogue_agent", "assembly_agent")
-    workflow.add_edge("scene_agent", "assembly_agent")
-
-    # 结束
+    workflow.add_edge("plot_agent", "parallel_dialogue_scene")
+    workflow.add_edge("parallel_dialogue_scene", "assembly_agent")
     workflow.add_edge("assembly_agent", END)
 
     return workflow.compile()
@@ -464,6 +458,10 @@ async def run_script_generation(
     final_state = None
     async for event in graph.astream(initial_state):
         for node_name, node_state in event.items():
+            # 跳过 LangGraph 内部事件（如 __interrupt__、__metadata__ 等）
+            if node_name.startswith("__"):
+                continue
+
             final_state = node_state
 
             # 推送事件

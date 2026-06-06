@@ -21,8 +21,7 @@ const STAGES = [
   { key: 'chapter_agent', label: '章节解析', desc: '分析章节结构与关键事件' },
   { key: 'character_agent', label: '角色提取', desc: '识别角色性格与关系网络' },
   { key: 'plot_agent', label: '情节重构', desc: '构建幕-场剧本结构' },
-  { key: 'dialogue_agent', label: '对白生成', desc: '叙事转角色对白与独白' },
-  { key: 'scene_agent', label: '场景设计', desc: '补充环境与氛围描述' },
+  { key: 'parallel_dialogue_scene', label: '对白与场景', desc: '对白生成 + 场景设计（并行）' },
   { key: 'assembly_agent', label: '整合输出', desc: '生成完整 YAML 剧本' },
 ]
 
@@ -30,9 +29,8 @@ const stageMap: Record<string, number> = {
   'chapter_agent': 0,
   'character_agent': 1,
   'plot_agent': 2,
-  'dialogue_agent': 3,
-  'scene_agent': 4,
-  'assembly_agent': 5,
+  'parallel_dialogue_scene': 3,
+  'assembly_agent': 4,
 }
 
 export default function ProjectPage() {
