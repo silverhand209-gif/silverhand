@@ -1,0 +1,17 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+langgraph==0.2.60
+langchain==0.3.14
+langchain-openai==0.2.14
+langchain-community==0.3.14
+chromadb==0.5.23
+sentence-transformers==3.3.1
+pydantic==2.10.4
+pyyaml==6.0.2
+python-multipart==0.0.18
+aiosqlite==0.20.0
+openai==1.58.1
+aiofiles==24.1.0
+httpx==0.28.1
+jieba==0.42.1
+json-repair==0.30.3

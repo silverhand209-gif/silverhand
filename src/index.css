@@ -1,0 +1,246 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: #f0f2f5;
+  color: #1a1a2e;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ==================== TDesign 组件全局美化 ==================== */
+
+/* Card */
+.t-card {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.t-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* Dialog */
+.t-dialog {
+  border-radius: 16px !important;
+  overflow: hidden;
+}
+.t-dialog__header {
+  padding: 24px 28px 0 !important;
+}
+.t-dialog__body {
+  padding: 16px 28px !important;
+}
+.t-dialog__body .t-form__item {
+  margin-bottom: 20px;
+}
+.t-dialog__footer {
+  padding: 16px 28px 24px !important;
+}
+.t-dialog__mask {
+  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Upload */
+.t-upload__dragger {
+  border-radius: 12px !important;
+  border: 2px dashed #d0d5dd !important;
+  background: #fafbfc !important;
+}
+.t-upload__dragger:hover {
+  border-color: #667eea !important;
+  background: #f0f4ff !important;
+}
+
+/* Textarea */
+.t-textarea__inner {
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace !important;
+}
+
+/* ==================== Input / Select / Textarea 统一美化 ==================== */
+.t-input,
+.t-input__inner,
+.t-select,
+.t-textarea__inner {
+  border-radius: 10px !important;
+  transition: all 0.2s ease !important;
+}
+
+.t-input,
+.t-select {
+  border: 1.5px solid #e0e0e0 !important;
+  background: #fafbfc !important;
+}
+
+.t-input:hover,
+.t-select:hover {
+  border-color: #c4c8d4 !important;
+  background: #fff !important;
+}
+
+.t-input:focus-within,
+.t-input.t-is-focused,
+.t-select.t-is-focused {
+  border-color: #667eea !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+}
+
+.t-input__inner {
+  padding: 10px 14px !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.t-input__wrap {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Select 下拉面板 */
+.t-select-option {
+  border-radius: 8px !important;
+  margin: 2px 6px !important;
+  padding: 8px 12px !important;
+  transition: all 0.15s ease !important;
+}
+.t-select-option.t-is-selected {
+  background: #f0f4ff !important;
+  color: #667eea !important;
+  font-weight: 500;
+}
+.t-select-option:hover:not(.t-is-selected) {
+  background: #f5f6fa !important;
+}
+
+/* Textarea */
+.t-textarea {
+  border-radius: 10px !important;
+}
+.t-textarea .t-textarea__inner {
+  border: 1.5px solid #e0e0e0 !important;
+  background: #fafbfc !important;
+  padding: 12px 14px !important;
+  font-size: 14px !important;
+  border-radius: 10px !important;
+}
+.t-textarea .t-textarea__inner:hover {
+  border-color: #c4c8d4 !important;
+}
+.t-textarea .t-textarea__inner:focus {
+  border-color: #667eea !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+}
+
+/* 表单标签 */
+.t-form__label {
+  font-weight: 500 !important;
+  color: #444 !important;
+  font-size: 14px !important;
+  padding-bottom: 6px !important;
+}
+
+/* Button */
+.t-button {
+  transition: all 0.2s ease !important;
+}
+.t-button--variant-outline {
+  border-radius: 10px !important;
+  border: 1.5px solid #d0d5dd !important;
+}
+.t-button--variant-outline:hover {
+  border-color: #667eea !important;
+  color: #667eea !important;
+}
+
+/* Tabs */
+.t-tabs__nav-item {
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  padding: 12px 20px !important;
+  transition: all 0.2s ease !important;
+}
+.t-tabs__nav-item.t-is-active {
+  color: #667eea !important;
+}
+
+/* Tag */
+.t-tag {
+  border-radius: 6px !important;
+  font-weight: 500 !important;
+}
+
+/* Steps */
+.t-steps-item__title {
+  font-weight: 500 !important;
+}
+
+/* Collapse */
+.t-collapse-panel__header {
+  font-weight: 500 !important;
+  border-radius: 10px !important;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* 渐进动画 */
+.fade-in {
+  animation: fadeIn 0.35s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 脉冲动画 */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.2s infinite;
+}
+
+.pulse-dot:nth-child(2) { animation-delay: 0.2s; }
+.pulse-dot:nth-child(3) { animation-delay: 0.4s; }
