@@ -216,29 +216,6 @@ novel-to-script/
 
 每个 Agent 独立负责一个创作维度，前一阶段输出作为后一阶段输入，最终由 AssemblyAgent 整合校验并输出标准化 YAML。
 
-## ⚠️ 常见问题
-
-### 1. 前端报 `ECONNREFUSED` 错误？
-
-这是后端未启动或未就绪时的正常现象，Vite proxy 已静默处理。请确保先启动后端 `python backend/main.py` 再访问前端。
-
-### 2. 首次启动下载嵌入模型很慢？
-
-`start.bat` 已设置 `HF_ENDPOINT=https://hf-mirror.com`（Hugging Face 镜像）加速下载。如仍较慢，可手动执行：
-
-```bash
-export HF_ENDPOINT=https://hf-mirror.com   # Linux/Mac
-set HF_ENDPOINT=https://hf-mirror.com      # Windows
-```
-
-### 3. JSON 解析错误？
-
-项目已集成 `json-repair` 库自动修复 LLM 输出中的 JSON 格式错误，同时在 Prompt 层面加入了严格的 JSON 输出约束。如仍有问题，请检查 LLM API 是否稳定。
-
-### 4. 如何切换 LLM 提供商？
-
-编辑 `backend/.env`，修改 `LLM_BASE_URL` 和 `LLM_MODEL` 即可。兼容所有 OpenAI 接口格式的服务（如 DeepSeek、通义千问、智谱 GLM 等）。
-
 ## 📄 License
 
 MIT
