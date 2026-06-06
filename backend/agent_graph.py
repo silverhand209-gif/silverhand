@@ -154,20 +154,20 @@ async def chapter_agent(state: AgentState) -> AgentState:
 
 
 async def character_agent(state: AgentState) -> AgentState:
-    """角色提取 Agent"""
+    """角色提取 Agent — 仅依赖章节解析结果，不传原文"""
     start_time = time.time()
     stage = "character_analysis"
 
     try:
+        chapter_info = state.get("chapter_analysis", "")[:1500]
         rag_context = await retrieve_context(
             stage,
-            f"角色提取，章节概要：{state.get('chapter_analysis', '')[:200]}"
+            f"角色提取，章节概要：{chapter_info[:200]}"
         )
 
         llm = get_llm(temperature=0.6)
         prompt = CHARACTER_AGENT_PROMPT.format(
-            novel_text=state["novel_text"],
-            chapter_analysis=state.get("chapter_analysis", "暂无章节分析"),
+            chapter_analysis=chapter_info or "暂无章节分析",
             rag_context=rag_context,
             json_rules=JSON_OUTPUT_RULES
         )
@@ -189,21 +189,22 @@ async def character_agent(state: AgentState) -> AgentState:
 
 
 async def plot_agent(state: AgentState) -> AgentState:
-    """情节重构 Agent"""
+    """情节重构 Agent — 仅依赖章节分析和角色信息，不传原文"""
     start_time = time.time()
     stage = "plot_structure"
 
     try:
+        chapter_info = state.get("chapter_analysis", "")[:1500]
+        char_info = state.get("character_analysis", "")[:1500]
         rag_context = await retrieve_context(
             stage,
-            f"情节重构，{state.get('chapter_analysis', '')[:200]}"
+            f"情节重构，{chapter_info[:200]}"
         )
 
         llm = get_llm(temperature=0.7)
         prompt = PLOT_AGENT_PROMPT.format(
-            chapter_analysis=state.get("chapter_analysis", "暂无"),
-            character_analysis=state.get("character_analysis", "暂无"),
-            novel_text=state["novel_text"],
+            chapter_analysis=chapter_info or "暂无",
+            character_analysis=char_info or "暂无",
             rag_context=rag_context,
             json_rules=JSON_OUTPUT_RULES
         )
@@ -225,21 +226,22 @@ async def plot_agent(state: AgentState) -> AgentState:
 
 
 async def dialogue_agent(state: AgentState) -> AgentState:
-    """对白生成 Agent"""
+    """对白生成 Agent — 仅依赖情节结构和角色信息，不传原文"""
     start_time = time.time()
     stage = "dialogue_generation"
 
     try:
+        plot_info = state.get("plot_structure", "")[:2000]
+        char_info = state.get("character_analysis", "")[:1500]
         rag_context = await retrieve_context(
             stage,
-            f"对白生成，{state.get('plot_structure', '')[:200]}"
+            f"对白生成，{plot_info[:200]}"
         )
 
         llm = get_llm(temperature=0.8)  # 对白需要更多创意
         prompt = DIALOGUE_AGENT_PROMPT.format(
-            plot_structure=state.get("plot_structure", "暂无"),
-            character_analysis=state.get("character_analysis", "暂无"),
-            novel_text=state["novel_text"],
+            plot_structure=plot_info or "暂无",
+            character_analysis=char_info or "暂无",
             rag_context=rag_context,
             json_rules=JSON_OUTPUT_RULES
         )
@@ -296,18 +298,17 @@ async def scene_agent(state: AgentState) -> AgentState:
 
 
 async def assembly_agent(state: AgentState) -> AgentState:
-    """整合输出 Agent"""
+    """整合输出 Agent — 仅依赖各 Agent 结构化输出，不传原文"""
     start_time = time.time()
 
     try:
-        llm = get_llm(temperature=0.3, use_small=False)  # 整合用大模型确保质量
+        llm = get_llm(temperature=0.3, use_small=False)
         prompt = ASSEMBLY_AGENT_PROMPT.format(
-            chapter_analysis=state.get("chapter_analysis", "暂无"),
-            character_analysis=state.get("character_analysis", "暂无"),
-            plot_structure=state.get("plot_structure", "暂无"),
-            dialogue_content=state.get("dialogue_content", "暂无"),
-            scene_design=state.get("scene_design", "暂无"),
-            novel_text=state["novel_text"]
+            chapter_analysis=state.get("chapter_analysis", "")[:1500] or "暂无",
+            character_analysis=state.get("character_analysis", "")[:1500] or "暂无",
+            plot_structure=state.get("plot_structure", "")[:2000] or "暂无",
+            dialogue_content=state.get("dialogue_content", "")[:2000] or "暂无",
+            scene_design=state.get("scene_design", "")[:1500] or "暂无",
         )
 
         response = await llm.ainvoke([HumanMessage(content=prompt)])
