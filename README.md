@@ -88,8 +88,8 @@ cp backend/.env.example backend/.env
 |------|------|--------|
 | `LLM_API_KEY` | LLM API Key（必填） | — |
 | `LLM_BASE_URL` | API 地址 | `https://api.openai.com/v1` |
-| `LLM_MODEL` | 主模型 | `gpt-4o` |
-| `LLM_SMALL_MODEL` | 小模型（RAG 查询改写） | `gpt-4o-mini` |
+| `LLM_MODEL` | 主模型（负责核心生成） | 请替换为你的模型名 |
+| `LLM_SMALL_MODEL` | 轻量模型（RAG 查询改写） | 请替换为你的模型名 |
 | `EMBEDDING_MODEL` | 嵌入模型 | `BAAI/bge-small-zh-v1.5` |
 | `EMBEDDING_DEVICE` | 嵌入设备 | `cpu` |
 | `PORT` | 后端端口 | `8000` |
