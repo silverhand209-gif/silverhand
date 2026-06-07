@@ -107,17 +107,22 @@ DECONSTRUCTOR_AGENT_PROMPT = """你是一位严谨的文学分析师。唯一任
 # ============================================================
 SCRIPT_AGENT_PROMPT = """你是一位专业影视编剧。基于完整的小说解构数据，一次性生成标准 YAML 剧本。
 
+## ⚠️ 最重要规则：必须覆盖每一章
+- chapters 列表中有多少章，就必须在 acts 中覆盖到每一章
+- **每章至少对应一个 scene**，情节密集的章节可拆分为多个 scene
+- 绝对禁止只输出 1 个 act 或 1 个 scene 就结束
+- 输出前自检：acts 中所有 scenes 的 source 标注覆盖了 chapters 的每一个章节号
+
 ## 核心原则：绝对忠实于原著
 - 所有对白必须来自 all_dialogues 中的原文对白，不得改写或编造
 - 所有角色必须在 characters 表中存在
 - 所有地点必须在 settings 表中存在
-- 必须覆盖 chapters 中列出的每一章
 - 情节按 plot_timeline 的顺序展开，不得遗漏事件
 - 每个 beat 必须标注 source 字段，标明来自第几章
 
 ## 输入数据
 
-### 章节列表
+### 章节列表（共 N 章，必须全部覆盖）
 {chapters_info}
 
 ### 角色表（含说话风格和原文对白样本）
@@ -141,11 +146,13 @@ SCRIPT_AGENT_PROMPT = """你是一位专业影视编剧。基于完整的小说�
 3. monologue 类型仅用于原文中有内心描写的角色
 4. 幕场结构按 plot_timeline 时间顺序排列
 5. 一场可包含同一章节的多个连续事件
+6. 对话节拍中 character_name 必须与 characters 表中的 name 完全一致
 
 {json_rules}
 
 ## 输出 YAML（直接输出，不要代码块）
-严格按照以下结构：
+
+假设有 3 章，输出结构应类似（根据实际章节数扩展）：
 
 script:
   meta:
@@ -159,7 +166,11 @@ script:
     synopsis: "故事梗概（100-200字）"
     source_chapters:
       - chapter: 1
-        title: "章节标题"
+        title: "第1章标题"
+      - chapter: 2
+        title: "第2章标题"
+      - chapter: 3
+        title: "第3章标题"
   characters:
     - id: "char_001"
       name: "角色名"
@@ -179,11 +190,11 @@ script:
       props: ["道具"]
   acts:
     - act_number: 1
-      title: "幕标题"
-      summary: "幕概要"
+      title: "第1幕 - 开端"
+      summary: "本幕涵盖第1章内容"
       scenes:
         - scene_number: 1
-          scene_title: "场标题"
+          scene_title: "第1场 - 具体场景名"
           location_id: "loc_001"
           time: "日"
           summary: "场概要"
@@ -201,9 +212,74 @@ script:
               emotion: "情绪"
               source: "第1章原对话"
           transition: "cut_to"
+        - scene_number: 2
+          scene_title: "第2场 - 具体场景名"
+          location_id: "loc_002"
+          time: "日"
+          summary: "场概要"
+          characters_present: ["char_001", "char_002"]
+          beats:
+            - beat_number: 1
+              type: "action"
+              description: "动作描述"
+              source: "第1章"
+            - beat_number: 2
+              type: "dialogue"
+              character_id: "char_001"
+              character_name: "角色名"
+              dialogue: "原文对白"
+              emotion: "情绪"
+              source: "第1章原对话"
+          transition: "cut_to"
+    - act_number: 2
+      title: "第2幕 - 发展"
+      summary: "本幕涵盖第2章内容"
+      scenes:
+        - scene_number: 3
+          scene_title: "第3场 - 具体场景名"
+          location_id: "loc_003"
+          time: "夜"
+          summary: "场概要"
+          characters_present: ["char_001"]
+          beats:
+            - beat_number: 1
+              type: "action"
+              description: "动作描述"
+              source: "第2章"
+            - beat_number: 2
+              type: "dialogue"
+              character_id: "char_001"
+              character_name: "角色名"
+              dialogue: "原文对白"
+              emotion: "情绪"
+              source: "第2章原对话"
+          transition: "cut_to"
+    - act_number: 3
+      title: "第3幕 - 高潮/结尾"
+      summary: "本幕涵盖第3章内容"
+      scenes:
+        - scene_number: 4
+          scene_title: "第4场 - 具体场景名"
+          location_id: "loc_001"
+          time: "日"
+          summary: "场概要"
+          characters_present: ["char_001", "char_002"]
+          beats:
+            - beat_number: 1
+              type: "action"
+              description: "动作描述"
+              source: "第3章"
+            - beat_number: 2
+              type: "dialogue"
+              character_id: "char_001"
+              character_name: "角色名"
+              dialogue: "原文对白"
+              emotion: "情绪"
+              source: "第3章原对话"
+          transition: "fade_out"
   notes:
     adaptation_notes: "改编说明"
-    chapters_to_acts_mapping: "每章对应的幕"
+    chapters_to_acts_mapping: "第1章→第1幕，第2章→第2幕，第3章→第3幕"
 
 直接输出 YAML 内容，不要包含任何解释文字，不要用 ```yaml 包裹。"""
 

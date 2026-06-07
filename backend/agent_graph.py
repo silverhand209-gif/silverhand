@@ -42,12 +42,13 @@ class AgentState(TypedDict):
 # ============================================================
 # LLM 工厂
 # ============================================================
-def get_llm(temperature: float = 0.7) -> ChatOpenAI:
+def get_llm(temperature: float = 0.7, max_tokens: int = 4096) -> ChatOpenAI:
     return ChatOpenAI(
         api_key=settings.LLM_API_KEY,
         base_url=settings.LLM_BASE_URL,
         model=settings.LLM_MODEL,
         temperature=temperature,
+        max_tokens=max_tokens,
     )
 
 
@@ -147,7 +148,7 @@ async def script_agent(state: AgentState) -> AgentState:
             f"剧本生成，共{len(data.get('chapters', []))}章"
         )
 
-        llm = get_llm(temperature=0.4)
+        llm = get_llm(temperature=0.4, max_tokens=16384)  # YAML 多章输出需要更大空间
         prompt = SCRIPT_AGENT_PROMPT.format(
             chapters_info=chapters_info,
             characters_info=characters_info,
