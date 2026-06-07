@@ -18,15 +18,17 @@ const { StepItem } = Steps
 const { Panel: CollapsePanel } = Collapse
 
 const STAGES = [
-  { key: 'deconstructor_agent', label: '原文解构', desc: '一次性提取角色、情节、对话等所有元素' },
+  { key: 'deconstructor_agent', label: '原文解构', desc: '逐章提取角色、情节、对话等所有元素' },
+  { key: 'overview_agent', label: '全局整合', desc: '整合各章数据，构建角色关系和场景表' },
   { key: 'script_agent', label: '剧本生成', desc: '基于解构数据生成完整 YAML 剧本' },
   { key: 'assembly_agent', label: '校验输出', desc: '自动校验剧本完整性与一致性' },
 ]
 
 const stageMap: Record<string, number> = {
   'deconstructor_agent': 0,
-  'script_agent': 1,
-  'assembly_agent': 2,
+  'overview_agent': 1,
+  'script_agent': 2,
+  'assembly_agent': 3,
 }
 
 export default function ProjectPage() {

@@ -12,110 +12,111 @@ JSON_OUTPUT_RULES = """## JSON 输出规范（必须严格遵守）
 - null 必须小写"""
 
 # ============================================================
-# 1. DeconstructorAgent — 一次性原文解构（唯一读原文的 Agent）
+# 0. 单章解构 Prompt — 逐章处理，支持无限章节扩展
 # ============================================================
-DECONSTRUCTOR_AGENT_PROMPT = """你是一位严谨的文学分析师。唯一任务：将小说原文完整解构为结构化数据，供剧本生成使用。
+CHAPTER_DECONSTRUCT_PROMPT = """你是一位严谨的文学分析师。任务：仅解构本章内容，提取所有结构化元素。
 
-## ⚠️ 完整性要求（最重要）
-
-### all_dialogues — 对话提取规则（必须逐句提取！）
-- 逐句通读原文，找到**每一句**用引号包裹的人物对白，**每句一个独立条目**
+## ⚠️ 对话提取（最重要）
+- 逐句找到本章中**每一句**用引号包裹的人物对白，**每句一个独立条目**
 - 包括：直接引号对话、转述对话、自言自语、人群喊话嘲讽议论
-- **绝对禁止**：把多句对话合并成1条。原文有30句对话就必须有30个条目
-- **示例**：原文 A："你好。" B："你好吗？" C："再见。" → 3个条目，不是1个
-- 简化输出：每个条目只需要 speaker、line 两个必填字段
+- **绝对禁止**：把多句对话合并。本章有30句对话就必须有30个条目
+- 每个条目只需 speaker 和 line
 
-### characters — 角色提取规则
-- 列出原文中**每一个**有名字的角色，包括只出场一次的角色
+## 当前章节信息
+- 章节号：{chapter_number}
+- 章节标题：{chapter_title}
 
-### settings — 场景提取规则
-- 列出原文中出现的**每一个**场景地点，详细描述原文中的描写
-
-### plot_timeline — 情节提取规则
-- 按原文时间顺序列出**每一个**关键事件，不得遗漏
-
-## 核心原则：绝对忠实于原文
-- 禁止编造：所有内容必须在原文中有对应文字
-- 禁止猜测：原文未明确的信息标注为 null 或空字符串
-- 禁止添加：不得添加原文中不存在的角色、情节、场景、对话
-- 完整覆盖：必须覆盖原文中每一个有名角色、每一个场景、每一段对话
-
-## 小说全文
-{novel_text}
-
-## RAG 参考
-{rag_context}
+## 本章原文
+{chapter_text}
 
 {json_rules}
 
-## 输出 JSON Schema
+## 输出 JSON Schema（仅本章数据）
 {{
-  "meta": {{
-    "title": "原文标题",
-    "author": null,
-    "genre": ["类型"],
-    "logline": "一句话概括核心冲突（50字内）"
-  }},
-  "chapters": [
+  "chapter_number": {chapter_number},
+  "chapter_title": "章节标题",
+  "summary": "本章情节摘要（100-300字）",
+  "key_events": ["按顺序列出关键事件"],
+  "new_characters": [
     {{
-      "chapter_number": 1,
-      "title": "章节标题",
-      "summary": "本章实际发生的情节（100-300字，覆盖所有关键情节）",
-      "key_events": ["按顺序列出本章每一个关键事件，不要合并"],
-      "characters_appeared": ["本章出场的每一个有名角色，包括配角"],
-      "locations": ["本章出现的每一个场景地点"]
-    }}
-  ],
-  "characters": [
-    {{
-      "id": "char_001",
-      "name": "原文中的真实姓名",
-      "aliases": ["原文中的其他称呼"],
+      "name": "角色名",
+      "aliases": ["其他称呼"],
       "role_type": "protagonist/antagonist/supporting/minor",
-      "personality": ["原文体现的性格特征，尽可能多列"],
-      "background": "原文中明确提及的背景信息",
-      "arc": "角色在本文范围内的变化轨迹",
-      "dialogue_style": "从原文对白总结的说话风格",
-      "dialogue_samples": ["原文中该角色至少2句真实对白"],
-      "relationships": [
-        {{
-          "target_name": "关联角色名",
-          "relation": "原文描述的关系",
-          "description": "原文中的关系描述"
-        }}
-      ],
-      "first_appearance_chapter": 1
+      "personality": ["本章体现的性格"],
+      "background": "背景信息",
+      "dialogue_style": "说话风格",
+      "dialogue_samples": ["本章真实对白"]
     }}
   ],
-  "settings": [
+  "new_settings": [
     {{
-      "id": "loc_001",
-      "name": "原文中的地点名称",
+      "name": "地点名",
       "type": "interior/exterior",
-      "description": "原文对场景的详细描写（包含氛围、光线、时间、人群等原文细节，100字以上）",
-      "appears_in_chapters": [1]
+      "description": "场景描述（50字以上）"
     }}
   ],
-  "plot_timeline": [
+  "plot_events": [
     {{
       "order": 1,
-      "chapter": 1,
-      "event": "原文中实际发生的具体事件描述（50-100字）",
+      "event": "事件描述",
       "characters_involved": ["参与角色"],
-      "location": "发生地点名",
-      "source_text": "对应的原文关键句（50字内）"
+      "location": "地点",
+      "source_text": "原文关键句"
     }}
   ],
-  "all_dialogues": [
+  "dialogues": [
     {{
-      "chapter": 1,
-      "speaker": "原文说话者姓名（没有名字的用'路人甲'/'测验员'等描述）",
-      "line": "原文中的单句对白（一字不改，去掉引号，每句一个条目）"
+      "speaker": "说话者",
+      "line": "单句对白（一字不改）"
     }}
   ]
 }}
 
-只输出 JSON，不要省略任何内容。"""
+只输出 JSON，不要省略任何对话。"""
+
+# ============================================================
+# 1. 整体概述 Prompt — 轻量级，基于各章摘要生成全局视角
+# ============================================================
+OVERVIEW_PROMPT = """基于各章节的解构摘要，生成小说的整体概述。
+
+## 各章摘要
+{chapters_summary}
+
+{json_rules}
+
+## 输出 JSON
+{{
+  "meta": {{
+    "title": "小说标题",
+    "genre": ["类型"],
+    "logline": "一句话概括（50字内）"
+  }},
+  "global_characters": [
+    {{
+      "id": "char_001",
+      "name": "角色名",
+      "role_type": "protagonist/antagonist/supporting/minor",
+      "personality": ["合并各章的性格特征"],
+      "background": "综合背景",
+      "arc": "整体变化轨迹",
+      "relationships": [
+        {{"target_name": "关联角色", "relation": "关系", "description": "描述"}}
+      ],
+      "first_appearance_chapter": 1
+    }}
+  ],
+  "global_settings": [
+    {{
+      "id": "loc_001",
+      "name": "地点",
+      "type": "interior/exterior",
+      "description": "综合描述",
+      "appears_in_chapters": [1]
+    }}
+  ]
+}}
+
+只输出 JSON。"""
 
 # ============================================================
 # 2. ScriptAgent — 基于解构数据一次性生成完整剧本
