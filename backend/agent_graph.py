@@ -166,6 +166,28 @@ async def script_agent(state: AgentState) -> AgentState:
         content = re.sub(r'^```ya?ml\s*\n?', '', content)
         content = re.sub(r'\n?```\s*$', '', content)
 
+        # 将 YAML 字符串值中未被解析的 \n 字面量替换为空格
+        # 只在 dialogue/description 等文本字段的引号值内替换，不影响 YAML 结构
+        def _replace_literal_newlines_in_yaml(text: str) -> str:
+            """替换 YAML 双引号字符串值中的 \\n 字面量为空格"""
+            result = []
+            i = 0
+            in_double_quote = False
+            while i < len(text):
+                if text[i] == '"' and (i == 0 or text[i-1] != '\\'):
+                    in_double_quote = not in_double_quote
+                    result.append(text[i])
+                    i += 1
+                elif in_double_quote and i + 1 < len(text) and text[i:i+2] == '\\n':
+                    result.append(' ')
+                    i += 2
+                else:
+                    result.append(text[i])
+                    i += 1
+            return ''.join(result)
+
+        content = _replace_literal_newlines_in_yaml(content)
+
         state["final_yaml"] = content
 
         state["agent_logs"] = state.get("agent_logs", []) + [{
