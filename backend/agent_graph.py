@@ -1,22 +1,22 @@
-"""LangGraph 多智能体编排 - 小说转剧本核心引擎"""
+"""LangGraph 多智能体编排 — 3 Agent 串行架构（支持分章批处理）
+DeconstructorAgent（逐章循环）→ OverviewAgent → ScriptAgent → AssemblyAgent（纯程序校验）
+每章独立解构后增量累积，支持无限章节扩展
+"""
 import json
 import time
 import re
-from typing import TypedDict, Annotated, Sequence, Literal
+from typing import TypedDict, Annotated, Sequence, List
 from operator import add
 
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage
 
 from config import settings
 from prompts import (
-    CHAPTER_AGENT_PROMPT,
-    CHARACTER_AGENT_PROMPT,
-    PLOT_AGENT_PROMPT,
-    DIALOGUE_AGENT_PROMPT,
-    SCENE_AGENT_PROMPT,
-    ASSEMBLY_AGENT_PROMPT,
+    CHAPTER_DECONSTRUCT_PROMPT,
+    OVERVIEW_PROMPT,
+    SCRIPT_AGENT_PROMPT,
     JSON_OUTPUT_RULES,
 )
 from rag import retrieve_context
@@ -28,16 +28,17 @@ from rag import retrieve_context
 class AgentState(TypedDict):
     project_id: str
     novel_text: str
-    stage: str  # 当前阶段
-    stage_order: list  # 阶段顺序
-    current_stage_index: int
 
-    # 各 Agent 输出
-    chapter_analysis: str
-    character_analysis: str
-    plot_structure: str
-    dialogue_content: str
-    scene_design: str
+    # 分章数据
+    chapters_raw: list  # [{number, title, text}, ...]
+
+    # DeconstructorAgent 累积输出
+    deconstructed: str  # JSON
+
+    # OverviewAgent 输出
+    overview: str  # JSON
+
+    # ScriptAgent 输出
     final_yaml: str
 
     # 日志
@@ -48,354 +49,498 @@ class AgentState(TypedDict):
 # ============================================================
 # LLM 工厂
 # ============================================================
-def get_llm(temperature: float = 0.7, use_small: bool = False) -> ChatOpenAI:
-    model = settings.LLM_SMALL_MODEL if use_small else settings.LLM_MODEL
+def get_llm(temperature: float = 0.7, max_tokens: int = 4096) -> ChatOpenAI:
     return ChatOpenAI(
         api_key=settings.LLM_API_KEY,
         base_url=settings.LLM_BASE_URL,
-        model=model,
+        model=settings.LLM_MODEL,
         temperature=temperature,
+        max_tokens=max_tokens,
     )
 
 
 def extract_json_from_response(text: str) -> str:
-    """从 LLM 响应中提取 JSON 内容"""
-    # 尝试匹配 JSON 代码块
     json_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', text, re.DOTALL)
     if json_match:
         return json_match.group(1).strip()
-
-    # 尝试匹配裸 JSON 对象
     brace_start = text.find('{')
     brace_end = text.rfind('}')
     if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
         return text[brace_start:brace_end + 1]
-
     return text.strip()
 
 
 def repair_json(text: str) -> str:
-    """使用 json_repair 库修复 LLM 输出中常见的 JSON 格式错误（不调 LLM，纯文本修复）"""
     from json_repair import repair_json as _repair
-
-    # 先提取 JSON 部分
     content = extract_json_from_response(text)
     try:
         return _repair(content)
     except Exception:
-        # 修复失败，返回原文
         return content
 
 
-async def call_llm_and_parse_json(
-    llm: ChatOpenAI,
-    prompt: str,
-) -> str:
-    """调用 LLM 并安全解析 JSON，失败时用 json_repair 自动修复"""
-    import json as json_module
-
+async def call_llm_and_parse_json(llm: ChatOpenAI, prompt: str) -> str:
     response = await llm.ainvoke([HumanMessage(content=prompt)])
     raw = response.content
-
-    # 用 json_repair 修复并解析
     content = repair_json(raw)
-
-    # 验证最终结果
     try:
-        json_module.loads(content)
-    except json_module.JSONDecodeError:
-        # 极少数情况仍失败，再试一次修复
+        json.loads(content)
+    except json.JSONDecodeError:
         content = repair_json(content)
-        json_module.loads(content)  # 还失败就抛异常
-
+        json.loads(content)
     return content
+
+
+def _parse_deconstructed(state: AgentState) -> dict:
+    try:
+        return json.loads(state.get("deconstructed", "{}"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _parse_overview(state: AgentState) -> dict:
+    try:
+        return json.loads(state.get("overview", "{}"))
+    except json.JSONDecodeError:
+        return {}
+
+
+# ============================================================
+# 章节分割工具
+# ============================================================
+CHAPTER_PATTERN = re.compile(
+    r'(?:第\s*([一二三四五六七八九十百千万零\d]+)\s*章\s*[^\n]*)'
+)
+
+
+def split_chapters(novel_text: str) -> List[dict]:
+    """将小说文本按章节标题分割，返回 [{number, title, text}, ...]"""
+    splits = list(CHAPTER_PATTERN.finditer(novel_text))
+    if len(splits) < 2:
+        # 无法分割，整体作为一章
+        return [{"number": 1, "title": "全文", "text": novel_text}]
+
+    chapters = []
+    for i, match in enumerate(splits):
+        title = match.group(0).strip()
+        start = match.start()
+        end = splits[i + 1].start() if i + 1 < len(splits) else len(novel_text)
+        text = novel_text[start:end].strip()
+        num_str = match.group(1)
+        try:
+            num = int(num_str)
+        except ValueError:
+            num = _cn_num_to_int(num_str)
+        chapters.append({"number": num, "title": title, "text": text})
+    return chapters
+
+
+def _cn_num_to_int(cn: str) -> int:
+    """中文数字转阿拉伯数字"""
+    mapping = {
+        "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+        "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+        "百": 100, "千": 1000, "万": 10000,
+        "零": 0, "两": 2
+    }
+    result = 0
+    temp = 0
+    for char in cn:
+        if char in mapping:
+            val = mapping[char]
+            if val >= 10:
+                if temp == 0:
+                    temp = 1
+                result += temp * val
+                temp = 0
+            else:
+                temp = val
+        else:
+            try:
+                return int(cn)
+            except ValueError:
+                return 0
+    result += temp
+    return result if result > 0 else 0
 
 
 # ============================================================
 # Agent 节点实现
 # ============================================================
 
-async def chapter_agent(state: AgentState) -> AgentState:
-    """章节解析 Agent"""
+async def deconstructor_agent(state: AgentState) -> AgentState:
+    """解构 Agent — 逐章循环处理，增量累积结构化数据"""
     start_time = time.time()
-    stage = "chapter_analysis"
+    chapters = state.get("chapters_raw", [])
+    if not chapters:
+        chapters = split_chapters(state["novel_text"])
+        state["chapters_raw"] = chapters
+
+    total = len(chapters)
+
+    # 累积容器
+    all_chapters_info = []
+    all_characters = {}  # name -> char_data (去重合并)
+    all_settings = {}    # name -> setting_data
+    all_plot_events = []  # 全局有序事件列表
+    all_dialogues = []
+    global_order = 0
+    char_id_counter = [0]
+    loc_id_counter = [0]
 
     try:
-        rag_context = await retrieve_context(
-            stage, f"小说章节解析，共{state['novel_text'][:200]}..."
-        )
+        llm = get_llm(temperature=0.2, max_tokens=4096)  # 单章输出，4096 足够
 
-        llm = get_llm(temperature=0.5)
-        prompt = CHAPTER_AGENT_PROMPT.format(
-            novel_text=state["novel_text"],
-            rag_context=rag_context,
-            json_rules=JSON_OUTPUT_RULES
+        for idx, ch in enumerate(chapters):
+            ch_num = ch["number"]
+            ch_title = ch["title"]
+            ch_text = ch["text"]
+
+            prompt = CHAPTER_DECONSTRUCT_PROMPT.format(
+                chapter_number=ch_num,
+                chapter_title=ch_title,
+                chapter_text=ch_text,
+                json_rules=JSON_OUTPUT_RULES,
+            )
+
+            content = await call_llm_and_parse_json(llm, prompt)
+            data = json.loads(content)
+
+            # 累积章节信息
+            all_chapters_info.append({
+                "chapter_number": ch_num,
+                "title": ch_title,
+                "summary": data.get("summary", ""),
+                "key_events": data.get("key_events", []),
+                "characters_appeared": [c.get("name", "") for c in data.get("new_characters", [])],
+                "locations": [s.get("name", "") for s in data.get("new_settings", [])],
+            })
+
+            # 累积角色（按 name 去重合并）
+            for c in data.get("new_characters", []):
+                name = c.get("name", "")
+                if name and name not in all_characters:
+                    char_id_counter[0] += 1
+                    all_characters[name] = {
+                        "id": f"char_{char_id_counter[0]:03d}",
+                        "name": name,
+                        "aliases": c.get("aliases", []),
+                        "role_type": c.get("role_type", "supporting"),
+                        "personality": c.get("personality", []),
+                        "background": c.get("background", ""),
+                        "dialogue_style": c.get("dialogue_style", ""),
+                        "dialogue_samples": c.get("dialogue_samples", []),
+                        "first_appearance_chapter": ch_num,
+                    }
+                elif name:
+                    # 合并性格和背景
+                    existing = all_characters[name]
+                    existing["personality"] = list(set(existing.get("personality", []) + c.get("personality", [])))
+                    if c.get("background"):
+                        existing["background"] = existing.get("background", "") + "; " + c.get("background", "")
+
+            # 累积场景（按 name 去重）
+            for s in data.get("new_settings", []):
+                sname = s.get("name", "")
+                if sname and sname not in all_settings:
+                    loc_id_counter[0] += 1
+                    all_settings[sname] = {
+                        "id": f"loc_{loc_id_counter[0]:03d}",
+                        "name": sname,
+                        "type": s.get("type", "interior"),
+                        "description": s.get("description", ""),
+                        "appears_in_chapters": [ch_num],
+                    }
+                elif sname:
+                    all_settings[sname]["appears_in_chapters"].append(ch_num)
+
+            # 累积情节事件
+            for ev in data.get("plot_events", []):
+                global_order += 1
+                all_plot_events.append({
+                    "order": global_order,
+                    "chapter": ch_num,
+                    "event": ev.get("event", ""),
+                    "characters_involved": ev.get("characters_involved", []),
+                    "location": ev.get("location", ""),
+                    "source_text": ev.get("source_text", ""),
+                })
+
+            # 累积对话
+            for d in data.get("dialogues", []):
+                all_dialogues.append({
+                    "chapter": ch_num,
+                    "speaker": d.get("speaker", ""),
+                    "line": d.get("line", ""),
+                })
+
+            state["agent_logs"] = state.get("agent_logs", []) + [{
+                "agent": "DeconstructorAgent",
+                "status": "progress",
+                "message": f"第{ch_num}章解构完成 ({idx+1}/{total})",
+                "dialogues_found": len(data.get("dialogues", [])),
+            }]
+
+    except Exception as e:
+        state["errors"] = state.get("errors", []) + [f"DeconstructorAgent: {str(e)}"]
+        state["agent_logs"] = state.get("agent_logs", []) + [{
+            "agent": "DeconstructorAgent", "status": "error", "error": str(e)
+        }]
+        return state
+
+    # 汇总
+    deconstructed = json.dumps({
+        "chapters": all_chapters_info,
+        "characters": list(all_characters.values()),
+        "settings": list(all_settings.values()),
+        "plot_timeline": all_plot_events,
+        "all_dialogues": all_dialogues,
+    }, ensure_ascii=False)
+
+    state["deconstructed"] = deconstructed
+
+    state["agent_logs"] = state.get("agent_logs", []) + [{
+        "agent": "DeconstructorAgent",
+        "status": "success",
+        "duration_ms": int((time.time() - start_time) * 1000),
+        "summary": f"共处理{total}章，提取角色{len(all_characters)}个，场景{len(all_settings)}个，对白{len(all_dialogues)}句，事件{len(all_plot_events)}个",
+    }]
+
+    return state
+
+
+async def overview_agent(state: AgentState) -> AgentState:
+    """全局概述 Agent — 基于各章摘要生成角色关系、场景综合描述"""
+    start_time = time.time()
+    data = _parse_deconstructed(state)
+
+    try:
+        chapters = data.get("chapters", [])
+        if not chapters:
+            state["overview"] = json.dumps({"meta": {}, "global_characters": [], "global_settings": []}, ensure_ascii=False)
+            return state
+
+        # 构建各章摘要文本
+        chapters_summary = "\n".join([
+            f"第{c.get('chapter_number', '?')}章 {c.get('title', '')}: {c.get('summary', '')}"
+            for c in chapters
+        ])
+
+        llm = get_llm(temperature=0.3, max_tokens=4096)
+        prompt = OVERVIEW_PROMPT.format(
+            chapters_summary=chapters_summary,
+            json_rules=JSON_OUTPUT_RULES,
         )
 
         content = await call_llm_and_parse_json(llm, prompt)
+        overview_data = json.loads(content)
 
-        state["chapter_analysis"] = content
+        # 合并 overview 的角色信息到 deconstructed 中
+        global_chars = overview_data.get("global_characters", [])
+        global_settings = overview_data.get("global_settings", [])
+
+        # 用 overview 的角色信息增强已有角色数据
+        existing_chars = {c.get("name", ""): c for c in data.get("characters", [])}
+        for gc in global_chars:
+            name = gc.get("name", "")
+            if name in existing_chars:
+                ec = existing_chars[name]
+                # 补充 overview 分析出的额外信息
+                if gc.get("arc") and not ec.get("arc"):
+                    ec["arc"] = gc["arc"]
+                if gc.get("relationships"):
+                    ec["relationships"] = gc["relationships"]
+
+        # 用 overview 的场景描述增强已有场景
+        existing_settings = {s.get("name", ""): s for s in data.get("settings", [])}
+        for gs in global_settings:
+            name = gs.get("name", "")
+            if name in existing_settings and gs.get("description"):
+                es = existing_settings[name]
+                if len(gs.get("description", "")) > len(es.get("description", "")):
+                    es["description"] = gs["description"]
+
+        # 更新 deconstructed
+        deconstructed_data = _parse_deconstructed(state)
+        deconstructed_data["meta"] = overview_data.get("meta", {})
+        deconstructed_data["characters"] = list(existing_chars.values())
+        deconstructed_data["settings"] = list(existing_settings.values())
+        state["deconstructed"] = json.dumps(deconstructed_data, ensure_ascii=False)
+        state["overview"] = json.dumps(overview_data, ensure_ascii=False)
+
+        dur = int((time.time() - start_time) * 1000)
         state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "ChapterAgent",
+            "agent": "OverviewAgent",
             "status": "success",
-            "duration_ms": int((time.time() - start_time) * 1000),
-            "output_preview": content[:200] + "..."
+            "duration_ms": dur,
+            "output_preview": f"全局角色{len(global_chars)}个，场景{len(global_settings)}个",
         }]
 
     except Exception as e:
-        state["errors"] = state.get("errors", []) + [f"ChapterAgent: {str(e)}"]
+        state["errors"] = state.get("errors", []) + [f"OverviewAgent: {str(e)}"]
         state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "ChapterAgent",
-            "status": "error",
-            "error": str(e)
+            "agent": "OverviewAgent", "status": "error", "error": str(e)
         }]
 
     return state
 
 
-async def character_agent(state: AgentState) -> AgentState:
-    """角色提取 Agent"""
+async def script_agent(state: AgentState) -> AgentState:
+    """剧本生成 Agent — 基于完整解构数据一次性生成 YAML 剧本"""
     start_time = time.time()
-    stage = "character_analysis"
+    data = _parse_deconstructed(state)
 
     try:
+        chapters_info = json.dumps(data.get("chapters", []), ensure_ascii=False, indent=2)
+        characters_info = json.dumps(data.get("characters", []), ensure_ascii=False, indent=2)
+        settings_info = json.dumps(data.get("settings", []), ensure_ascii=False, indent=2)
+        plot_timeline = json.dumps(data.get("plot_timeline", []), ensure_ascii=False, indent=2)
+        all_dialogues = json.dumps(data.get("all_dialogues", []), ensure_ascii=False, indent=2)
+
+        chapter_count = len(data.get("chapters", []))
+        dialogue_count = len(data.get("all_dialogues", []))
+
         rag_context = await retrieve_context(
-            stage,
-            f"角色提取，章节概要：{state.get('chapter_analysis', '')[:200]}"
+            "script",
+            f"剧本生成，共{chapter_count}章，{dialogue_count}句对白"
         )
 
-        llm = get_llm(temperature=0.6)
-        prompt = CHARACTER_AGENT_PROMPT.format(
-            novel_text=state["novel_text"],
-            chapter_analysis=state.get("chapter_analysis", "暂无章节分析"),
+        # 根据章节数动态调整 max_tokens
+        token_budget = max(16384, chapter_count * 2048)
+        llm = get_llm(temperature=0.4, max_tokens=token_budget)
+        prompt = SCRIPT_AGENT_PROMPT.format(
+            chapters_info=chapters_info,
+            characters_info=characters_info,
+            settings_info=settings_info,
+            plot_timeline=plot_timeline,
+            all_dialogues=all_dialogues,
             rag_context=rag_context,
             json_rules=JSON_OUTPUT_RULES
-        )
-
-        content = await call_llm_and_parse_json(llm, prompt)
-
-        state["character_analysis"] = content
-        state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "CharacterAgent",
-            "status": "success",
-            "duration_ms": int((time.time() - start_time) * 1000),
-            "output_preview": content[:200] + "..."
-        }]
-
-    except Exception as e:
-        state["errors"] = state.get("errors", []) + [f"CharacterAgent: {str(e)}"]
-
-    return state
-
-
-async def plot_agent(state: AgentState) -> AgentState:
-    """情节重构 Agent"""
-    start_time = time.time()
-    stage = "plot_structure"
-
-    try:
-        rag_context = await retrieve_context(
-            stage,
-            f"情节重构，{state.get('chapter_analysis', '')[:200]}"
-        )
-
-        llm = get_llm(temperature=0.7)
-        prompt = PLOT_AGENT_PROMPT.format(
-            chapter_analysis=state.get("chapter_analysis", "暂无"),
-            character_analysis=state.get("character_analysis", "暂无"),
-            novel_text=state["novel_text"],
-            rag_context=rag_context,
-            json_rules=JSON_OUTPUT_RULES
-        )
-
-        content = await call_llm_and_parse_json(llm, prompt)
-
-        state["plot_structure"] = content
-        state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "PlotAgent",
-            "status": "success",
-            "duration_ms": int((time.time() - start_time) * 1000),
-            "output_preview": content[:200] + "..."
-        }]
-
-    except Exception as e:
-        state["errors"] = state.get("errors", []) + [f"PlotAgent: {str(e)}"]
-
-    return state
-
-
-async def dialogue_agent(state: AgentState) -> AgentState:
-    """对白生成 Agent"""
-    start_time = time.time()
-    stage = "dialogue_generation"
-
-    try:
-        rag_context = await retrieve_context(
-            stage,
-            f"对白生成，{state.get('plot_structure', '')[:200]}"
-        )
-
-        llm = get_llm(temperature=0.8)  # 对白需要更多创意
-        prompt = DIALOGUE_AGENT_PROMPT.format(
-            plot_structure=state.get("plot_structure", "暂无"),
-            character_analysis=state.get("character_analysis", "暂无"),
-            novel_text=state["novel_text"],
-            rag_context=rag_context,
-            json_rules=JSON_OUTPUT_RULES
-        )
-
-        content = await call_llm_and_parse_json(llm, prompt)
-
-        state["dialogue_content"] = content
-        state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "DialogueAgent",
-            "status": "success",
-            "duration_ms": int((time.time() - start_time) * 1000),
-            "output_preview": content[:200] + "..."
-        }]
-
-    except Exception as e:
-        state["errors"] = state.get("errors", []) + [f"DialogueAgent: {str(e)}"]
-
-    return state
-
-
-async def scene_agent(state: AgentState) -> AgentState:
-    """场景描述 Agent"""
-    start_time = time.time()
-    stage = "scene_design"
-
-    try:
-        rag_context = await retrieve_context(
-            stage,
-            f"场景设计，{state.get('plot_structure', '')[:200]}"
-        )
-
-        llm = get_llm(temperature=0.6)
-        prompt = SCENE_AGENT_PROMPT.format(
-            plot_structure=state.get("plot_structure", "暂无"),
-            dialogue_content=state.get("dialogue_content", "暂无"),
-            rag_context=rag_context,
-            json_rules=JSON_OUTPUT_RULES
-        )
-
-        content = await call_llm_and_parse_json(llm, prompt)
-
-        state["scene_design"] = content
-        state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "SceneAgent",
-            "status": "success",
-            "duration_ms": int((time.time() - start_time) * 1000),
-            "output_preview": content[:200] + "..."
-        }]
-
-    except Exception as e:
-        state["errors"] = state.get("errors", []) + [f"SceneAgent: {str(e)}"]
-
-    return state
-
-
-async def assembly_agent(state: AgentState) -> AgentState:
-    """整合输出 Agent"""
-    start_time = time.time()
-
-    try:
-        llm = get_llm(temperature=0.3, use_small=False)  # 整合用大模型确保质量
-        prompt = ASSEMBLY_AGENT_PROMPT.format(
-            chapter_analysis=state.get("chapter_analysis", "暂无"),
-            character_analysis=state.get("character_analysis", "暂无"),
-            plot_structure=state.get("plot_structure", "暂无"),
-            dialogue_content=state.get("dialogue_content", "暂无"),
-            scene_design=state.get("scene_design", "暂无"),
-            novel_text=state["novel_text"]
         )
 
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         content = response.content.strip()
 
-        # 清理可能的代码块标记
-        content = re.sub(r'^```yaml\s*\n?', '', content)
+        # 清理代码块标记
+        content = re.sub(r'^```ya?ml\s*\n?', '', content)
         content = re.sub(r'\n?```\s*$', '', content)
 
+        # 将 YAML 字符串值中未被解析的 \n 字面量替换为空格
+        def _replace_literal_newlines_in_yaml(text: str) -> str:
+            result = []
+            i = 0
+            in_double_quote = False
+            while i < len(text):
+                if text[i] == '"' and (i == 0 or text[i-1] != '\\'):
+                    in_double_quote = not in_double_quote
+                    result.append(text[i])
+                    i += 1
+                elif in_double_quote and i + 1 < len(text) and text[i:i+2] == '\\n':
+                    result.append(' ')
+                    i += 2
+                else:
+                    result.append(text[i])
+                    i += 1
+            return ''.join(result)
+
+        content = _replace_literal_newlines_in_yaml(content)
+
         state["final_yaml"] = content
+
         state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "AssemblyAgent",
+            "agent": "ScriptAgent",
             "status": "success",
             "duration_ms": int((time.time() - start_time) * 1000),
             "output_preview": content[:300] + "..."
         }]
 
     except Exception as e:
-        state["errors"] = state.get("errors", []) + [f"AssemblyAgent: {str(e)}"]
+        state["errors"] = state.get("errors", []) + [f"ScriptAgent: {str(e)}"]
+        state["agent_logs"] = state.get("agent_logs", []) + [{
+            "agent": "ScriptAgent", "status": "error", "error": str(e)
+        }]
 
     return state
 
 
-# ============================================================
-# 路由函数：决定下一步
-# ============================================================
-STAGE_ORDER = [
-    "chapter_analysis",
-    "character_analysis",
-    "plot_structure",
-    "dialogue_generation",
-    "scene_design",
-    "assembly",
-    "finish"
-]
-
-
-def supervisor_router(state: AgentState) -> str:
-    """Supervisor 路由：根据当前阶段决定下一步"""
-    current = state.get("stage", "chapter_analysis")
+async def assembly_agent(state: AgentState) -> AgentState:
+    """整合校验 Agent — 纯程序校验 YAML 完整性，不调用 LLM"""
+    start_time = time.time()
 
     try:
-        idx = STAGE_ORDER.index(current)
-        next_stage = STAGE_ORDER[idx + 1]
-    except (ValueError, IndexError):
-        return END
+        yaml_text = state.get("final_yaml", "")
 
-    # 更新阶段
-    state["stage"] = next_stage
+        if not yaml_text or not yaml_text.strip():
+            state["errors"] = state.get("errors", []) + ["AssemblyAgent: 剧本为空"]
+            state["agent_logs"] = state.get("agent_logs", []) + [{
+                "agent": "AssemblyAgent", "status": "error", "error": "剧本为空"
+            }]
+            return state
 
-    # 路由到对应节点
-    stage_to_node = {
-        "chapter_analysis": "chapter_agent",
-        "character_analysis": "character_agent",
-        "plot_structure": "plot_structure",
-        "dialogue_generation": "dialogue_agent",
-        "scene_design": "scene_agent",
-        "assembly": "assembly_agent",
-        "finish": END,
-    }
+        # 校验必要字段
+        required_sections = ["script:", "meta:", "characters:", "acts:"]
+        missing = [s for s in required_sections if s not in yaml_text]
 
-    return stage_to_node.get(next_stage, END)
+        warnings = []
+        if missing:
+            warnings.append(f"缺少字段: {', '.join(missing)}")
+
+        # 校验角色引用合法性
+        data = _parse_deconstructed(state)
+        valid_names = {c.get("name", "") for c in data.get("characters", [])}
+        valid_names.add("")
+
+        char_refs = re.findall(r'character_name:\s*"([^"]*)"', yaml_text)
+        char_refs += re.findall(r"character_name:\s*'([^']*)'", yaml_text)
+        unknown = [n for n in char_refs if n and n not in valid_names]
+        if unknown:
+            warnings.append(f"引用了角色表中不存在的角色: {', '.join(set(unknown))}")
+
+        # 校验对白数量
+        all_dialogues = data.get("all_dialogues", [])
+        dialogue_beats = len(re.findall(r'type:\s*"dialogue"', yaml_text))
+        if dialogue_beats < len(all_dialogues):
+            warnings.append(f"对白缺失: all_dialogues有{len(all_dialogues)}句，剧本中仅{dialogue_beats}个dialogue beat")
+
+        dur = int((time.time() - start_time) * 1000)
+        state["agent_logs"] = state.get("agent_logs", []) + [{
+            "agent": "AssemblyAgent",
+            "status": "success",
+            "duration_ms": dur,
+            "warnings": warnings,
+            "output_preview": "校验通过" if not warnings else f"校验完成，{len(warnings)} 个警告"
+        }]
+
+        if warnings:
+            state["errors"] = state.get("errors", []) + [f"AssemblyAgent: {'; '.join(warnings)}"]
+
+    except Exception as e:
+        state["errors"] = state.get("errors", []) + [f"AssemblyAgent: {str(e)}"]
+        state["agent_logs"] = state.get("agent_logs", []) + [{
+            "agent": "AssemblyAgent", "status": "error", "error": str(e)
+        }]
+
+    return state
 
 
 # ============================================================
 # 构建 Graph
 # ============================================================
 def build_script_graph() -> StateGraph:
-    """构建小说转剧本的 LangGraph 工作流"""
+    """构建 4 节点串行工作流：
+    DeconstructorAgent（逐章循环）→ OverviewAgent → ScriptAgent → AssemblyAgent
+    """
     workflow = StateGraph(AgentState)
 
-    # 添加节点
-    workflow.add_node("chapter_agent", chapter_agent)
-    workflow.add_node("character_agent", character_agent)
-    workflow.add_node("plot_agent", plot_agent)
-    workflow.add_node("dialogue_agent", dialogue_agent)
-    workflow.add_node("scene_agent", scene_agent)
+    workflow.add_node("deconstructor_agent", deconstructor_agent)
+    workflow.add_node("overview_agent", overview_agent)
+    workflow.add_node("script_agent", script_agent)
     workflow.add_node("assembly_agent", assembly_agent)
 
-    # 设置入口
-    workflow.set_entry_point("chapter_agent")
-
-    # 设置边（顺序执行）
-    workflow.add_edge("chapter_agent", "character_agent")
-    workflow.add_edge("character_agent", "plot_agent")
-    workflow.add_edge("plot_agent", "dialogue_agent")
-    workflow.add_edge("dialogue_agent", "scene_agent")
-    workflow.add_edge("scene_agent", "assembly_agent")
+    workflow.set_entry_point("deconstructor_agent")
+    workflow.add_edge("deconstructor_agent", "overview_agent")
+    workflow.add_edge("overview_agent", "script_agent")
+    workflow.add_edge("script_agent", "assembly_agent")
     workflow.add_edge("assembly_agent", END)
 
     return workflow.compile()
@@ -409,43 +554,24 @@ async def run_script_generation(
     novel_text: str,
     event_callback=None
 ) -> dict:
-    """
-    执行完整的剧本生成流程
-
-    Args:
-        project_id: 项目ID
-        novel_text: 小说原文
-        event_callback: 可选，用于流式推送中间状态的回调函数
-            async def callback(stage: str, data: dict)
-
-    Returns:
-        包含 final_yaml 和 agent_logs 的字典
-    """
+    """执行完整的剧本生成流程"""
     graph = build_script_graph()
 
     initial_state: AgentState = {
         "project_id": project_id,
         "novel_text": novel_text,
-        "stage": "start",
-        "stage_order": STAGE_ORDER,
-        "current_stage_index": 0,
-        "chapter_analysis": "",
-        "character_analysis": "",
-        "plot_structure": "",
-        "dialogue_content": "",
-        "scene_design": "",
+        "chapters_raw": [],
+        "deconstructed": "",
+        "overview": "",
         "final_yaml": "",
         "agent_logs": [],
         "errors": [],
     }
 
-    # 流式执行，每个节点完成后推送状态
     final_state = None
     async for event in graph.astream(initial_state):
         for node_name, node_state in event.items():
             final_state = node_state
-
-            # 推送事件
             if event_callback:
                 await event_callback(node_name, {
                     "stage": node_name,
@@ -460,9 +586,5 @@ async def run_script_generation(
         "final_yaml": final_state.get("final_yaml", ""),
         "agent_logs": final_state.get("agent_logs", []),
         "errors": final_state.get("errors", []),
-        "chapter_analysis": final_state.get("chapter_analysis", ""),
-        "character_analysis": final_state.get("character_analysis", ""),
-        "plot_structure": final_state.get("plot_structure", ""),
-        "dialogue_content": final_state.get("dialogue_content", ""),
-        "scene_design": final_state.get("scene_design", ""),
+        "deconstructed": final_state.get("deconstructed", ""),
     }
