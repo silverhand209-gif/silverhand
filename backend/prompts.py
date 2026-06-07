@@ -113,9 +113,10 @@ PLOT_AGENT_PROMPT = """你是一位资深的影视编剧，擅长将小说情节
 - 幕-场结构必须覆盖原文所有章节的完整情节，不得遗漏任何章节
 - 场景中的角色必须是原文中真实存在的角色
 - 情节走向与原文完全一致，不得自行添加或删减
+- **必须生成完整的三幕（或多幕）结构**，将全部章节的情节分配到各个幕中
 
 ## 任务
-基于章节分析和角色信息，重构为剧本的「幕-场」结构。
+基于章节分析和角色信息，重构为剧本的「幕-场」结构。将所有章节的情节完整分配到 3-5 个幕中。
 
 ## 章节分析
 {chapter_analysis}
@@ -129,13 +130,16 @@ PLOT_AGENT_PROMPT = """你是一位资深的影视编剧，擅长将小说情节
 {json_rules}
 
 ## 输出 JSON Schema
+注意：acts 数组中必须包含 3 个或以上幕，覆盖全部章节。每个幕下 scenes 数组中的 source_chapter 字段标明该场对应原文哪一章。
+
 {{
   "acts": [
     {{
       "act_number": 1,
       "title": "第一幕 - 开端",
-      "summary": "本幕概要（50-100字）",
+      "summary": "本幕概要（50-100字），说明覆盖了哪些章节",
       "dramatic_function": "建立",
+      "covered_chapters": [1, 2],
       "scenes": [
         {{
           "scene_number": 1,
@@ -152,10 +156,26 @@ PLOT_AGENT_PROMPT = """你是一位资深的影视编剧，擅长将小说情节
           "beat_count": 5
         }}
       ]
+    }},
+    {{
+      "act_number": 2,
+      "title": "第二幕 - 发展/对抗",
+      "summary": "本幕概要（50-100字），说明覆盖了哪些章节",
+      "dramatic_function": "对抗",
+      "covered_chapters": [3, 5],
+      "scenes": [...]
+    }},
+    {{
+      "act_number": 3,
+      "title": "第三幕 - 高潮/结局",
+      "summary": "本幕概要（50-100字），说明覆盖了哪些章节",
+      "dramatic_function": "解决",
+      "covered_chapters": [6, 7],
+      "scenes": [...]
     }}
   ],
   "adaptation_notes": {{
-    "chapters_to_acts_mapping": "章节与幕的对应关系说明",
+    "chapters_to_acts_mapping": "章节与幕的对应关系说明，必须列出每一章对应哪个幕",
     "cut_content": ["被删减的情节"],
     "added_content": ["需要新增的过渡情节"],
     "pacing_suggestions": "节奏调整建议"

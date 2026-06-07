@@ -87,6 +87,58 @@ def repair_json(text: str) -> str:
         return content
 
 
+def _smart_truncate_chapter_analysis(raw_json: str, max_chars: int = 3000) -> str:
+    """智能截取章节分析 JSON：保留章节总数 + 每章摘要，避免简单截断丢失后续章节"""
+    if len(raw_json) <= max_chars:
+        return raw_json
+
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        # 非标准 JSON，回退到普通截断 + 提示
+        return raw_json[:max_chars] + f"\n（注意：共{len(raw_json)}字符，已截断，请基于已有章节信息生成完整的多幕结构）"
+
+    chapters = data.get("chapters", [])
+    overall = data.get("overall_structure", {})
+
+    if not chapters:
+        return raw_json[:max_chars]
+
+    total = len(chapters)
+
+    # 构建精简版：保留总体结构 + 每章的最小摘要
+    slim = {"total_chapters": total}
+
+    if overall:
+        slim["overall_structure"] = {
+            "narrative_perspective": overall.get("narrative_perspective", ""),
+            "timeline_type": overall.get("timeline_type", ""),
+            "key_themes": overall.get("key_themes", [])
+        }
+
+    slim["chapters_summary"] = []
+    for ch in chapters:
+        slim["chapters_summary"].append({
+            "chapter_number": ch.get("chapter_number"),
+            "title": ch.get("title", ""),
+            "summary": ch.get("summary", "")[:80],  # 每章只保留前80字摘要
+            "key_events": ch.get("key_events", [])[:3]  # 每章最多3个关键事件
+        })
+
+    result = json.dumps(slim, ensure_ascii=False, indent=2)
+
+    # 如果精简后仍超长，进一步压缩
+    if len(result) > max_chars:
+        for ch in slim["chapters_summary"]:
+            ch["summary"] = ch.get("summary", "")[:40]
+            ch["key_events"] = ch.get("key_events", [])[:2]
+        result = json.dumps(slim, ensure_ascii=False, indent=2)
+
+    # 追加明确提示
+    result += f"\n（以上共{total}章，请确保生成的acts覆盖全部{total}章的情节）"
+    return result
+
+
 async def call_llm_and_parse_json(
     llm: ChatOpenAI,
     prompt: str,
@@ -195,7 +247,9 @@ async def plot_agent(state: AgentState) -> AgentState:
     stage = "plot_structure"
 
     try:
-        chapter_info = state.get("chapter_analysis", "")[:1500]
+        # 智能截取章节分析：保留章节总数 + 每章摘要，避免丢失后面的章节
+        raw_chapter = state.get("chapter_analysis", "")
+        chapter_info = _smart_truncate_chapter_analysis(raw_chapter)
         char_info = state.get("character_analysis", "")[:1500]
         rag_context = await retrieve_context(
             stage,
