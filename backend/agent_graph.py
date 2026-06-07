@@ -168,25 +168,27 @@ async def structure_agent(state: AgentState) -> AgentState:
         )
 
         content = await call_llm_and_parse_json(llm, prompt)
-        state["acts_structure"] = content
 
-        state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "StructureAgent",
-            "status": "success",
-            "duration_ms": int((time.time() - start_time) * 1000),
-            "output_preview": content[:200] + "..."
-        }]
+        return {
+            "acts_structure": content,
+            "agent_logs": [{
+                "agent": "StructureAgent",
+                "status": "success",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "output_preview": content[:200] + "..."
+            }]
+        }
 
     except Exception as e:
-        state["errors"] = state.get("errors", []) + [f"StructureAgent: {str(e)}"]
-        state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "StructureAgent", "status": "error", "error": str(e)
-        }]
+        return {
+            "errors": [f"StructureAgent: {str(e)}"],
+            "agent_logs": [{
+                "agent": "StructureAgent", "status": "error", "error": str(e)
+            }]
+        }
 
-    return state
 
-
-async def content_agent(state: AgentState) -> AgentState:
+async def content_agent(state: AgentState) -> dict:
     """内容 Agent — 基于解构数据和幕场骨架，填充对白与场景内容"""
     start_time = time.time()
     data = _parse_deconstructed(state)
@@ -213,22 +215,24 @@ async def content_agent(state: AgentState) -> AgentState:
         )
 
         content = await call_llm_and_parse_json(llm, prompt)
-        state["scenes_with_beats"] = content
 
-        state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "ContentAgent",
-            "status": "success",
-            "duration_ms": int((time.time() - start_time) * 1000),
-            "output_preview": content[:200] + "..."
-        }]
+        return {
+            "scenes_with_beats": content,
+            "agent_logs": [{
+                "agent": "ContentAgent",
+                "status": "success",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "output_preview": content[:200] + "..."
+            }]
+        }
 
     except Exception as e:
-        state["errors"] = state.get("errors", []) + [f"ContentAgent: {str(e)}"]
-        state["agent_logs"] = state.get("agent_logs", []) + [{
-            "agent": "ContentAgent", "status": "error", "error": str(e)
-        }]
-
-    return state
+        return {
+            "errors": [f"ContentAgent: {str(e)}"],
+            "agent_logs": [{
+                "agent": "ContentAgent", "status": "error", "error": str(e)
+            }]
+        }
 
 
 def _escape_yaml_value(val: str) -> str:
