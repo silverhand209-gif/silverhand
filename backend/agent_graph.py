@@ -154,7 +154,7 @@ async def chapter_agent(state: AgentState) -> AgentState:
 
 
 async def character_agent(state: AgentState) -> AgentState:
-    """角色提取 Agent — 仅依赖章节解析结果，不传原文"""
+    """角色提取 Agent — 需原文提取角色细节，但用章节摘要辅助定位"""
     start_time = time.time()
     stage = "character_analysis"
 
@@ -167,6 +167,7 @@ async def character_agent(state: AgentState) -> AgentState:
 
         llm = get_llm(temperature=0.6)
         prompt = CHARACTER_AGENT_PROMPT.format(
+            novel_text=state["novel_text"],
             chapter_analysis=chapter_info or "暂无章节分析",
             rag_context=rag_context,
             json_rules=JSON_OUTPUT_RULES
@@ -226,7 +227,7 @@ async def plot_agent(state: AgentState) -> AgentState:
 
 
 async def dialogue_agent(state: AgentState) -> AgentState:
-    """对白生成 Agent — 仅依赖情节结构和角色信息，不传原文"""
+    """对白生成 Agent — 需原文参考对话风格和叙事细节"""
     start_time = time.time()
     stage = "dialogue_generation"
 
@@ -240,6 +241,7 @@ async def dialogue_agent(state: AgentState) -> AgentState:
 
         llm = get_llm(temperature=0.8)  # 对白需要更多创意
         prompt = DIALOGUE_AGENT_PROMPT.format(
+            novel_text=state["novel_text"],
             plot_structure=plot_info or "暂无",
             character_analysis=char_info or "暂无",
             rag_context=rag_context,
