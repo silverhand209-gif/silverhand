@@ -18,21 +18,15 @@ const { StepItem } = Steps
 const { Panel: CollapsePanel } = Collapse
 
 const STAGES = [
-  { key: 'chapter_agent', label: '章节解析', desc: '分析章节结构与关键事件' },
-  { key: 'character_agent', label: '角色提取', desc: '识别角色性格与关系网络' },
-  { key: 'plot_agent', label: '情节重构', desc: '构建幕-场剧本结构' },
-  { key: 'dialogue_agent', label: '对白生成', desc: '叙事转角色对白与独白' },
-  { key: 'scene_agent', label: '场景设计', desc: '补充环境与氛围描述' },
-  { key: 'assembly_agent', label: '整合输出', desc: '生成完整 YAML 剧本' },
+  { key: 'deconstructor_agent', label: '原文解构', desc: '一次性提取角色、情节、对话等所有元素' },
+  { key: 'script_agent', label: '剧本生成', desc: '基于解构数据生成完整 YAML 剧本' },
+  { key: 'assembly_agent', label: '校验输出', desc: '自动校验剧本完整性与一致性' },
 ]
 
 const stageMap: Record<string, number> = {
-  'chapter_agent': 0,
-  'character_agent': 1,
-  'plot_agent': 2,
-  'dialogue_agent': 3,
-  'scene_agent': 4,
-  'assembly_agent': 5,
+  'deconstructor_agent': 0,
+  'script_agent': 1,
+  'assembly_agent': 2,
 }
 
 export default function ProjectPage() {
@@ -344,7 +338,7 @@ export default function ProjectPage() {
                         🚀 开始生成剧本
                       </Button>
                       <div style={{ color: '#aaa', fontSize: 13, marginTop: 10 }}>
-                        预计需要 2-5 分钟，AI 将依次完成章节解析、角色提取、情节重构、对白生成、场景设计和整合输出
+                        AI 将依次完成原文解构、剧本生成和自动校验
                       </div>
                     </div>
                   )}

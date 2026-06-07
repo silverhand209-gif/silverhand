@@ -1,7 +1,7 @@
-"""集中式 Prompt 模板管理"""
+"""集中式 Prompt 模板管理 — 3 Agent 串行架构"""
 
 # ============================================================
-# 公共 JSON 输出约束（所有 Agent 共用）
+# 公共 JSON 输出约束
 # ============================================================
 JSON_OUTPUT_RULES = """## JSON 输出规范（必须严格遵守）
 - 输出纯 JSON，不要用 ```json 代码块包裹
@@ -12,254 +12,90 @@ JSON_OUTPUT_RULES = """## JSON 输出规范（必须严格遵守）
 - null 必须小写"""
 
 # ============================================================
-# ChapterAgent - 章节解析
+# 1. DeconstructorAgent — 一次性原文解构（唯一读原文的 Agent）
 # ============================================================
-CHAPTER_AGENT_PROMPT = """你是一位专业的文学编辑，擅长分析小说结构。
+DECONSTRUCTOR_AGENT_PROMPT = """你是一位严谨的文学分析师。唯一任务：将小说原文完整解构为结构化数据，供剧本生成使用。
 
-## 任务
-解析以下小说章节，提取结构信息。
+## 核心原则：绝对忠实于原文
+- 禁止编造：所有内容必须在原文中有对应文字
+- 禁止猜测：原文未明确的信息标注为 null 或空字符串
+- 禁止添加：不得添加原文中不存在的角色、情节、场景、对话
+- 完整覆盖：必须覆盖原文中每一个有名角色、每一个场景、每一段对话
 
-## 小说内容
+## 小说全文
 {novel_text}
 
-## RAG 参考（类似作品的剧本改编案例）
+## RAG 参考
 {rag_context}
 
 {json_rules}
 
 ## 输出 JSON Schema
 {{
+  "meta": {{
+    "title": "原文标题",
+    "author": null,
+    "genre": ["类型"],
+    "logline": "一句话概括核心冲突（50字内）"
+  }},
   "chapters": [
     {{
       "chapter_number": 1,
       "title": "章节标题",
-      "word_count": 5000,
-      "summary": "章节内容概要（100-200字）",
-      "key_events": ["关键事件1", "关键事件2"],
-      "emotional_arc": "本章情感走向",
-      "cliffhanger": null,
-      "themes": ["主题1", "主题2"]
+      "summary": "本章实际发生的情节（80-200字）",
+      "key_events": ["关键事件"],
+      "characters_appeared": ["出场的所有有名角色"],
+      "locations": ["出现的场景地点"]
     }}
   ],
-  "overall_structure": {{
-    "narrative_perspective": "第三人称",
-    "timeline_type": "线性",
-    "pace_assessment": "中",
-    "key_themes": ["核心主题"]
-  }}
-}}
-
-只输出 JSON。"""
-
-# ============================================================
-# CharacterAgent - 角色提取
-# ============================================================
-CHARACTER_AGENT_PROMPT = """你是一位专业的剧本角色分析师。
-
-## 任务
-从以下小说章节中提取所有角色信息，分析他们的性格、关系和角色弧光。
-
-## 小说内容
-{novel_text}
-
-## 章节解析结果
-{chapter_analysis}
-
-## RAG 参考（经典剧本角色塑造案例）
-{rag_context}
-
-{json_rules}
-
-## 输出 JSON Schema
-{{
   "characters": [
     {{
       "id": "char_001",
-      "name": "角色姓名",
-      "aliases": ["别名"],
+      "name": "原文中的真实姓名",
+      "aliases": ["原文中的其他称呼"],
       "role_type": "protagonist",
-      "age": 25,
-      "gender": "男",
-      "occupation": "职业",
-      "personality": ["性格特征1", "性格特征2"],
-      "background": "角色背景故事（50-150字）",
-      "arc": "角色在故事中的成长变化轨迹（50-150字）",
+      "personality": ["原文体现的性格特征"],
+      "background": "原文中明确提及的背景",
+      "arc": "角色在原文中的变化轨迹",
+      "dialogue_style": "从原文对白总结的说话风格",
+      "dialogue_samples": ["原文中该角色的真实对白"],
       "relationships": [
         {{
           "target_name": "关联角色名",
-          "relation": "关系类型",
-          "description": "关系描述"
+          "relation": "原文描述的关系",
+          "description": "原文中的关系描述"
         }}
       ],
-      "dialogue_style": "该角色的说话风格特征",
       "first_appearance_chapter": 1
     }}
-  ]
-}}
-
-只输出 JSON。"""
-
-# ============================================================
-# PlotAgent - 情节重构
-# ============================================================
-PLOT_AGENT_PROMPT = """你是一位资深的影视编剧，擅长将小说情节重构为剧本结构。
-
-## 任务
-基于章节分析和角色信息，将小说情节重构为剧本的「幕-场」结构。
-
-## 章节分析
-{chapter_analysis}
-
-## 角色信息
-{character_analysis}
-
-## 原著内容
-{novel_text}
-
-## RAG 参考（经典剧本结构案例）
-{rag_context}
-
-{json_rules}
-
-## 输出 JSON Schema
-{{
-  "acts": [
-    {{
-      "act_number": 1,
-      "title": "第一幕 - 开端",
-      "summary": "本幕概要（50-100字）",
-      "dramatic_function": "建立",
-      "scenes": [
-        {{
-          "scene_number": 1,
-          "scene_title": "场标题",
-          "location_name": "场景地点",
-          "location_type": "interior",
-          "location_description": "场景环境描述",
-          "time": "日",
-          "time_specific": null,
-          "summary": "本场概要（30-80字）",
-          "characters_present": ["角色名1", "角色名2"],
-          "source_chapter": 1,
-          "dramatic_purpose": "本场的戏剧目的",
-          "beat_count": 5
-        }}
-      ]
-    }}
   ],
-  "adaptation_notes": {{
-    "chapters_to_acts_mapping": "章节与幕的对应关系说明",
-    "cut_content": ["被删减的情节"],
-    "added_content": ["需要新增的过渡情节"],
-    "pacing_suggestions": "节奏调整建议"
-  }}
-}}
-
-只输出 JSON。"""
-
-# ============================================================
-# DialogueAgent - 对白生成
-# ============================================================
-DIALOGUE_AGENT_PROMPT = """你是一位专业的影视对白编剧，擅长创作生动自然的人物对话。
-
-## 任务
-基于情节结构和角色信息，为每一场生成具体的节拍内容（包括对白、独白、旁白）。
-
-## 情节结构
-{plot_structure}
-
-## 角色信息
-{character_analysis}
-
-## 原著内容（参考原文对话和叙事）
-{novel_text}
-
-## RAG 参考（经典对白范例）
-{rag_context}
-
-## 重要创作原则
-1. **展示而非讲述**：将小说中的心理描写转化为可视的动作和对白
-2. **对白差异化**：每个角色有独特的说话风格
-3. **潜台词**：好的对白有言外之意
-4. **节奏控制**：长短句交替，紧张与舒缓交替
-5. **避免信息倾泻**：不要让角色大段解释背景
-
-{json_rules}
-
-## 输出 JSON Schema
-{{
-  "scenes_with_beats": [
-    {{
-      "scene_number": 1,
-      "beats": [
-        {{
-          "beat_number": 1,
-          "type": "action",
-          "description": "动作描述",
-          "character_name": null,
-          "dialogue": null,
-          "parenthetical": null,
-          "emotion": null,
-          "notes": null
-        }},
-        {{
-          "beat_number": 2,
-          "type": "dialogue",
-          "description": null,
-          "character_name": "角色名",
-          "dialogue": "对白内容",
-          "parenthetical": null,
-          "emotion": "平静",
-          "notes": null
-        }}
-      ],
-      "transition": "cut_to"
-    }}
-  ]
-}}
-
-只输出 JSON。"""
-
-# ============================================================
-# SceneAgent - 场景描述增强
-# ============================================================
-SCENE_AGENT_PROMPT = """你是一位影视美术指导和场景设计师。
-
-## 任务
-为剧本的每个场景补充详细的环境描述、道具清单和视觉氛围。
-
-## 情节结构
-{plot_structure}
-
-## 对白内容
-{dialogue_content}
-
-## RAG 参考（经典电影场景设计）
-{rag_context}
-
-{json_rules}
-
-## 输出 JSON Schema
-{{
-  "locations": [
+  "settings": [
     {{
       "id": "loc_001",
-      "name": "场景名称",
+      "name": "原文中的地点名称",
       "type": "interior",
-      "description": "详细场景描述（50-100字）",
-      "time_period": "现代",
-      "atmosphere": "氛围描述",
-      "props": ["道具1", "道具2"],
-      "lighting_suggestion": "光线建议",
-      "color_palette": "色调建议"
+      "description": "原文对场景的具体描述（若无则写'原文未详述'）",
+      "appears_in_chapters": [1]
     }}
   ],
-  "scene_enhancements": [
+  "plot_timeline": [
     {{
-      "scene_number": 1,
-      "visual_style": "视觉风格描述",
-      "camera_suggestions": ["镜头建议1"],
-      "sound_design": "声音设计建议"
+      "order": 1,
+      "chapter": 1,
+      "event": "原文中实际发生的事件描述",
+      "characters_involved": ["参与角色"],
+      "location": "发生地点名",
+      "source_text": "对应的原文关键句（50字内）"
+    }}
+  ],
+  "all_dialogues": [
+    {{
+      "chapter": 1,
+      "speaker": "原文说话者",
+      "listener": "原文听话者（可为null）",
+      "line": "原文中的完整对白（一字不改）",
+      "context": "对话情境（30-80字）",
+      "emotion": "原文体现的情绪"
     }}
   ]
 }}
@@ -267,46 +103,60 @@ SCENE_AGENT_PROMPT = """你是一位影视美术指导和场景设计师。
 只输出 JSON。"""
 
 # ============================================================
-# AssemblyAgent - 整合输出
+# 2. ScriptAgent — 基于解构数据一次性生成完整剧本
 # ============================================================
-ASSEMBLY_AGENT_PROMPT = """你是一位剧本终审编辑，负责将所有 Agent 的输出整合为完整的 YAML 剧本。
+SCRIPT_AGENT_PROMPT = """你是一位专业影视编剧。基于完整的小说解构数据，一次性生成标准 YAML 剧本。
 
-## 任务
-根据以下各模块的输出，生成完整、一致、格式规范的 YAML 剧本。
+## 核心原则：绝对忠实于原著
+- 所有对白必须来自 all_dialogues 中的原文对白，不得改写或编造
+- 所有角色必须在 characters 表中存在
+- 所有地点必须在 settings 表中存在
+- 必须覆盖 chapters 中列出的每一章
+- 情节按 plot_timeline 的顺序展开，不得遗漏事件
+- 每个 beat 必须标注 source 字段，标明来自第几章
 
 ## 输入数据
-### 章节解析
-{chapter_analysis}
 
-### 角色信息
-{character_analysis}
+### 章节列表
+{chapters_info}
 
-### 情节结构
-{plot_structure}
+### 角色表（含说话风格和原文对白样本）
+{characters_info}
 
-### 对白内容
-{dialogue_content}
+### 场景地点
+{settings_info}
 
-### 场景设计
-{scene_design}
+### 情节时间线
+{plot_timeline}
 
-### 原著内容
-{novel_text}
+### 原文全部对话
+{all_dialogues}
 
-## YAML Schema 要求
-严格按照以下 Schema 输出：
+## RAG 参考
+{rag_context}
 
-```yaml
+## 创作约束
+1. 对白优先直接引用 all_dialogues 中的原文对话
+2. 叙事文字可转化为 action 类型节拍，保留原文意思
+3. monologue 类型仅用于原文中有内心描写的角色
+4. 幕场结构按 plot_timeline 时间顺序排列
+5. 一场可包含同一章节的多个连续事件
+
+{json_rules}
+
+## 输出 YAML（直接输出，不要代码块）
+严格按照以下结构：
+
 script:
   meta:
     title: "剧本标题"
-    original_work: "原著小说名"
+    original_work: "原著名"
     original_author: "原著作者"
     version: "1.0"
     script_type: "movie"
     genre: ["类型"]
     logline: "一句话梗概"
-    synopsis: "故事梗概"
+    synopsis: "故事梗概（100-200字）"
     source_chapters:
       - chapter: 1
         title: "章节标题"
@@ -341,25 +191,21 @@ script:
           beats:
             - beat_number: 1
               type: "action"
-              description: "描述"
+              description: "基于原文的动作描述"
+              source: "第1章"
             - beat_number: 2
               type: "dialogue"
               character_id: "char_001"
               character_name: "角色名"
-              dialogue: "对白内容"
+              dialogue: "原文对白"
               emotion: "情绪"
+              source: "第1章原对话"
           transition: "cut_to"
   notes:
     adaptation_notes: "改编说明"
-```
+    chapters_to_acts_mapping: "每章对应的幕"
 
-## 重要规则
-1. **一致性检查**：确保所有引用的角色 ID、场景 ID 在对应的列表中都有定义
-2. **去重合并**：如果多个场景在同一地点，合并为同一个 location_id
-3. **补充缺失**：如有字段缺失，根据上下文合理补充
-4. **格式规范**：严格按照 YAML 格式输出，注意缩进
-
-请输出完整的 YAML 内容，不要包含任何解释文字。"""
+直接输出 YAML 内容，不要包含任何解释文字，不要用 ```yaml 包裹。"""
 
 # ============================================================
 # RAG 查询改写 Prompt
