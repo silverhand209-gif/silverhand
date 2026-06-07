@@ -1,6 +1,6 @@
 # 📜 小说转剧本 — AI 辅助剧本创作工具
 
-基于 **LangGraph 多智能体框架** + **RAG 检索增强生成** 的 AI 辅助剧本创作工具，将 3 个章节以上的小说文本自动转换为结构化剧本（YAML 格式）。
+基于 **LangGraph 多智能体框架** + **RAG 检索增强生成** 的 AI 辅助剧本创作工具，将小说文本自动转换为结构化剧本（YAML 格式）。支持**分章批处理**，可处理任意章节数量。
 
 <p align="center">
   <img src="https://img.shields.io/badge/React-18-blue?logo=react" alt="React">
@@ -13,19 +13,23 @@
 
 ## ✨ 核心特性
 
-- **📚 多章节处理**：上传 `.txt` 小说文件，自动识别「第X章」进行章节分割
-- **🤖 6 大智能体协作**：基于 LangGraph 编排的专业 Agent 流水线
-  - `ChapterAgent` — 章节结构解析与关键事件提取
-  - `CharacterAgent` — 角色识别、性格分析与关系图谱
-  - `PlotAgent` — 情节重构（幕-场-节拍三级结构）
-  - `DialogueAgent` — 叙事转对白、独白与旁白生成
-  - `SceneAgent` — 场景描述、氛围设计与转场
-  - `AssemblyAgent` — 整合校验与 YAML 格式化输出
+- **📚 分章批处理**：自动识别「第X章」进行章节分割，逐章独立解构后增量累积，支持无限章节扩展
+- **🤖 4 Agent 串行流水线**：基于 LangGraph 编排的专业 Agent 工作流
+  - `DeconstructorAgent` — 逐章循环解构，提取角色、场景、情节事件、对白
+  - `OverviewAgent` — 全局整合，生成角色关系网络与场景综合描述
+  - `ScriptAgent` — 剧本生成，基于完整解构数据一次性输出 YAML 剧本
+  - `AssemblyAgent` — 纯程序校验，检查 YAML 完整性与角色引用一致性
 - **🔍 RAG 知识增强**：ChromaDB 向量数据库 + Sentence-Transformers 嵌入，自动检索经典剧本参考
-- **📝 标准化 YAML 输出**：好莱坞剧本格式兼容，支持导出与二次编辑
+- **📝 标准化 YAML 输出**：好莱坞剧本格式兼容（幕→场→节拍四级结构），支持导出与二次编辑
 - **📊 SSE 流式进度**：实时推送各 Agent 执行状态与生成进度
 - **📋 版本管理**：支持剧本多版本保存与历史回溯
-- **🎨 现代化 UI**：紫蓝渐变主题，TDesign 组件库深度定制，响应式布局
+- **🎨 现代化 UI**：渐变背景 + 暗色剧本编辑器，TDesign 组件库深度定制，响应式布局
+
+## 🎬 Demo 演示
+
+[![小说转剧本 Demo](https://img.shields.io/badge/bilibili-演示视频-00A1D6?logo=bilibili)](https://www.bilibili.com/video/BV1vbEh6bE4d/)
+
+点击上方观看完整操作演示（B站）。
 
 ## 🏗️ 技术架构
 
@@ -41,9 +45,8 @@
 ┌────────────────────────┴────────────────────────────────────┐
 │                   后端 (FastAPI + Python)                     │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │              LangGraph Multi-Agent Pipeline           │   │
-│  │  Chapter → Character → Plot → Dialogue → Scene       │   │
-│  │                    → Assembly                         │   │
+│  │          LangGraph 4 Agent 串行流水线                  │   │
+│  │  Deconstructor（逐章循环）→ Overview → Script → Assembly│   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────┐  ┌──────────┐  ┌───────────────────┐     │
 │  │   RAG 引擎    │  │  SQLite  │  │    ChromaDB       │     │
@@ -117,8 +120,8 @@ npm run dev
 
 1. 首页点击 **「新建项目」**，填写项目名称、原著信息、剧本类型（电影/电视剧/网剧/舞台剧）
 2. 进入项目页，在 **「上传小说」** 标签页上传 `.txt` 文件，或点击「从剪贴板粘贴」
-3. 系统自动识别章节分割，确认章节数量 ≥ 3 后，点击 **「开始生成剧本」**
-4. 可在 **「生成进度」** 标签页实时查看 6 个 Agent 的执行状态和整体百分比
+3. 系统自动识别章节分割，点击 **「开始生成剧本」**
+4. 可在 **「生成进度」** 标签页实时查看 4 个 Agent 的执行状态和整体百分比
 
 ### 编辑与管理剧本
 
@@ -155,8 +158,8 @@ script
 novel-to-script/
 ├── backend/
 │   ├── main.py              # FastAPI 服务入口（路由、SSE、文件上传）
-│   ├── agent_graph.py       # LangGraph 多智能体编排（6 Agent 流水线）
-│   ├── prompts.py           # Prompt 模板 + JSON 输出约束规则
+│   ├── agent_graph.py       # LangGraph 4 Agent 串行编排（支持分章批处理）
+│   ├── prompts.py           # Prompt 模板（逐章解构、全局整合、剧本生成）
 │   ├── rag.py               # RAG 引擎（ChromaDB + Sentence-Transformers）
 │   ├── db.py                # SQLite 数据访问层（项目、版本 CRUD）
 │   ├── config.py            # 环境变量配置管理
@@ -167,7 +170,7 @@ novel-to-script/
 │   ├── App.tsx              # 路由配置（/、/project/:id、/knowledge）
 │   ├── api.ts               # Axios API 封装 + SSE 流式调用
 │   ├── store.ts             # Zustand 状态管理（生成进度、剧本内容）
-│   ├── index.css            # 全局样式（TDesign 组件深度定制）
+│   ├── index.css            # 全局样式（渐变背景、暗色编辑器、组件定制）
 │   ├── components/
 │   │   └── Layout.tsx       # 页面布局（Header / Content / Footer）
 │   └── pages/
@@ -207,14 +210,39 @@ novel-to-script/
 ### 生成流水线
 
 ```
-小说文本 → ChapterAgent → CharacterAgent → PlotAgent
-         → DialogueAgent → SceneAgent → AssemblyAgent
-         → YAML 剧本
+小说文本 → 章节分割
+              ↓
+         DeconstructorAgent（逐章循环）
+         每章独立提取：角色、场景、情节、对白
+         增量累积，去重合并
+              ↓
+         OverviewAgent（全局整合）
+         角色关系网络、场景综合描述、元信息
+              ↓
+         ScriptAgent（剧本生成）
+         动态 token 预算，一次性生成完整 YAML
+              ↓
+         AssemblyAgent（纯程序校验）
+         YAML 字段完整性、角色引用一致性、对白数量
+              ↓
+         YAML 剧本
               ↑
-         RAG 知识检索（贯穿全程）
+         RAG 知识检索（贯穿 Overview + Script 阶段）
 ```
 
-每个 Agent 独立负责一个创作维度，前一阶段输出作为后一阶段输入，最终由 AssemblyAgent 整合校验并输出标准化 YAML。
+**架构优势**：
+- **逐章解构**：每章独立调用 LLM，单次输出可控（4K tokens），不受总章节数限制
+- **增量累积**：角色按名称去重合并，场景和情节按顺序追加，天然支持跨章节关联
+- **动态预算**：ScriptAgent 的 `max_tokens` 根据章节数动态计算 `max(16384, chapters × 2048)`
+
+## 📝 更新日志
+
+### 2026-06-07 — PR #4 & #5 合并
+
+| PR | 内容 |
+|----|------|
+| [#4](https://github.com/silverhand209-gif/silverhand/pull/4) | **3 Agent 串行 + 分章批处理架构** — 从 6 Agent 重构为 Deconstructor→Overview→Script→Assembly 4 Agent 流水线；实现逐章循环解构 + 增量累积，支持无限章节扩展；修复对白大量缺失问题，每句对白独立 beat |
+| [#5](https://github.com/silverhand209-gif/silverhand/pull/5) | **前端 UI 优化** — 剧本预览区暗色编辑器（#1e1e2e 背景 + 语法高亮配色）；页面渐变背景；Card 组件圆角统一 14px；空状态结构化样式；操作栏样式抽取 |
 
 ## 📄 License
 
