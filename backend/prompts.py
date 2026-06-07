@@ -17,11 +17,12 @@ JSON_OUTPUT_RULES = """## JSON 输出规范（必须严格遵守）
 DECONSTRUCTOR_AGENT_PROMPT = """你是一位严谨的文学分析师。唯一任务：将小说原文完整解构为结构化数据，供剧本生成使用。
 
 ## ⚠️ 完整性要求（最重要）
-- all_dialogues 必须提取原文中**每一句**人物对白，一字不漏。包括：
-  * 直接引号内的对话
+- all_dialogues 必须提取原文中**每一句**人物对白，**每句一个独立条目**。包括：
+  * 直接引号内的对话（一句一个条目，不要合并）
   * 叙述中转述的对话（如"某某说……"）
-  * 人物内心的自言自语（作为 monologue 或内心对白）
+  * 人物内心的自言自语
   * 人群中的喊话、嘲讽、议论
+  * **示例**：如果原文是 A说："你好。" B说："你好。" C说："再见。" — 这应该拆成3个独立条目，不要合并为1条
 - characters 必须列出原文中**每一个**有名字的角色，包括只出场一次的角色
 - settings 必须列出原文中出现的**每一个**场景地点，详细描述原文中对场景的描写
 - plot_timeline 按原文时间顺序列出**每一个**关键事件，不得遗漏
@@ -103,7 +104,7 @@ DECONSTRUCTOR_AGENT_PROMPT = """你是一位严谨的文学分析师。唯一任
       "chapter": 1,
       "speaker": "原文说话者姓名",
       "listener": "原文听话者姓名（可为null）",
-      "line": "原文中的完整对白段落（一字不改，保留原文换行和标点）",
+      "line": "原文中的**单句**对白（一字不改，每句一个条目，不要把多句对话合并）",
       "context": "对话发生的前因后果（30-80字）",
       "emotion": "原文体现的情绪"
     }}
@@ -115,62 +116,71 @@ DECONSTRUCTOR_AGENT_PROMPT = """你是一位严谨的文学分析师。唯一任
 # ============================================================
 # 2. ScriptAgent — 基于解构数据一次性生成完整剧本
 # ============================================================
-SCRIPT_AGENT_PROMPT = """你是一位专业影视编剧。基于完整的小说解构数据，生成标准 YAML 剧本。
+SCRIPT_AGENT_PROMPT = """你是一位专业影视编剧。基于完整的小说解构数据，按标准剧本格式生成 YAML。
 
-## ⚠️ 最重要规则：丰富完整输出
-- 必须覆盖 chapters 中列出的**每一章**
-- **根据 plot_timeline 的事件密度拆分场景**：每个场景切换/地点切换应新建一个 scene
-- 一章情节丰富的，应拆成 2-4 个 scene，不要强行压缩到 1 个 scene
-- **all_dialogues 中的每一句对白都要在剧本中出现**，不能选择性遗漏
-- 绝对禁止只输出 1 个 act 或 1 个 scene 就结束
-- 输出前自检：all_dialogues 的对话是否全部覆盖、每个章节是否都有对应 scene
+## ⚠️ 最重要的规则
 
-## 核心原则：绝对忠实于原著
-- 所有对白必须来自 all_dialogues 中的原文对白，不得改写或编造
-- 所有角色必须在 characters 表中存在
-- 所有地点必须在 settings 表中存在，场景描述引用 settings 中的详细描写
-- 情节按 plot_timeline 的顺序展开，不得遗漏事件
-- 每个 beat 必须标注 source 字段，标明来自第几章
+### 对白规则（最关键！）
+- **all_dialogues 中的每一个条目 = 剧本中的 1 个 dialogue beat**
+- **绝对禁止将多句对白合并成 1 个 beat**。如果原文有 5 句对话，就必须有 5 个 dialogue beat
+- 每句对白一字不改地引用 all_dialogues 中的 line 字段
+- 对话的 character_name 必须与 characters 表中完全一致
+
+### 场景规则
+- 按 plot_timeline 的事件顺序拆分场景，地点切换或时间跳跃就新建 scene
+- 一章情节丰富时拆成 2-4 个 scene
+- 每个章节都必须有对应 scene
+
+### 完整性自检
+- 输出前逐一核对：all_dialogues 的 N 条对话 → 剧本中 N 个 dialogue beat
+- 每个章节是否都有对应 scene
 
 ## 输入数据
 
-### 章节列表（共 N 章，必须全部覆盖）
+### 章节列表
 {chapters_info}
 
-### 角色表（含说话风格和原文对白样本）
+### 角色表
 {characters_info}
 
-### 场景地点（含详细描写，请充分使用）
+### 场景地点
 {settings_info}
 
-### 情节时间线（按此顺序编排场景）
+### 情节时间线
 {plot_timeline}
 
-### 原文全部对话（每一句都要在剧本中出现）
+### 原文全部对话（每个条目 = 1句对白，全部必须出现在剧本中）
 {all_dialogues}
 
 ## RAG 参考
 {rag_context}
 
-## 创作指南
-1. **场景拆分**：按 plot_timeline 的事件顺序，每遇到地点切换或时间跳跃就新建 scene
-2. **对白完整性**：将 all_dialogues 中的每一句对话分配到合适的 scene 中，不允许遗漏
-3. **动作描述**：action 类型 beat 的 description 要详细（30-100字），保留原文的细节和氛围
-4. **内心独白**：原文中有心理描写的，使用 monologue 类型 beat 表现角色内心活动
-5. **角色一致性**：dialogue/monologue 中的 character_name 必须与 characters 表完全一致
-6. **场景描述**：scene 的 summary 应包含场景的氛围、光线、人物状态等原文细节
+## 标准剧本格式说明
 
-## Beat 类型说明
-- action：动作、行为、场景转换
-- dialogue：人物对白，来自 all_dialogues
+标准影视剧本中，对白是逐句呈现的，像这样：
+
+```
+场景标题
+环境描述、人物动作
+
+　　角色A：（情绪）对白内容
+　　角色B：（情绪）对白内容
+　　角色A：（情绪）回应内容
+```
+
+每句对白独立一行，角色名+冒号开头，这样才有对话的节奏感。
+
+## Beat 类型
+- action：动作、场景转换（description 30-100字，保留原文细节和氛围）
+- dialogue：人物对白（每句对白一个 beat，来自 all_dialogues）
 - monologue：角色内心独白（对应原文心理描写）
-- narration：旁白叙述（用于交代世界观、背景等原文叙述性文字）
+- narration：旁白叙述（世界观、背景等叙述性文字）
 
 {json_rules}
 
-## 输出 YAML（直接输出，不要代码块）
+## 输出 YAML 示例
 
-YAML 结构如下。注意：以下仅为格式参考，你必须根据实际输入数据生成完整内容，不要照抄示例数据。
+以下是 2 句对白 + 1 个心理描写的正确写法。注意每句对白都是独立的 beat：
 
 script:
   meta:
@@ -184,114 +194,65 @@ script:
     synopsis: "故事梗概（100-200字）"
     source_chapters:
       - chapter: 1
-        title: "第1章标题"
-      - chapter: 2
-        title: "第2章标题"
-      - chapter: 3
-        title: "第3章标题"
+        title: "章标题"
   characters:
     - id: "char_001"
-      name: "角色名"
+      name: "角色A"
       role_type: "protagonist"
-      personality: ["特征1", "特征2"]
-      background: "背景信息"
-      arc: "角色弧光"
-      relationships:
-        - target_id: "char_002"
-          relation: "关系"
-          description: "关系描述"
+      personality: ["特征"]
+      background: "背景"
+      arc: "弧光"
+      relationships: []
   locations:
     - id: "loc_001"
-      name: "场景名"
+      name: "地点名"
       type: "interior"
-      description: "引用 settings 中的详细场景描述"
-      props: ["道具"]
+      description: "场景描述"
+      props: []
   acts:
     - act_number: 1
       title: "幕标题"
-      summary: "本幕涵盖的内容概要"
+      summary: "本幕概要"
       scenes:
         - scene_number: 1
-          scene_title: "具体场景标题"
+          scene_title: "场景名"
           location_id: "loc_001"
           time: "日"
-          summary: "本场发生的情节概要"
+          summary: "本场概要"
           characters_present: ["char_001"]
           beats:
             - beat_number: 1
               type: "action"
-              description: "详细的动作/场景描述"
+              description: "动作/场景描述"
               source: "第1章"
             - beat_number: 2
               type: "monologue"
               character_id: "char_001"
-              character_name: "角色名"
-              description: "内心独白内容"
+              character_name: "角色A"
+              description: "内心想法内容"
               emotion: "情绪"
               source: "第1章心理描写"
             - beat_number: 3
               type: "dialogue"
               character_id: "char_001"
-              character_name: "角色名"
-              dialogue: "原文对白（完整引用）"
+              character_name: "角色A"
+              dialogue: "第一句对白"
               emotion: "情绪"
               source: "第1章原对话"
             - beat_number: 4
-              type: "narration"
-              description: "旁白叙述内容"
-              source: "第1章叙述"
-          transition: "cut_to"
-        - scene_number: 2
-          scene_title: "下一场场景标题"
-          location_id: "loc_002"
-          time: "夜"
-          summary: "本场发生的情节概要"
-          characters_present: ["char_001", "char_002"]
-          beats:
-            - beat_number: 1
               type: "action"
-              description: "详细的动作/场景描述"
+              description: "中间的动作"
               source: "第1章"
-            - beat_number: 2
+            - beat_number: 5
               type: "dialogue"
-              character_id: "char_001"
-              character_name: "角色名"
-              dialogue: "原文对白"
+              character_id: "char_002"
+              character_name: "角色B"
+              dialogue: "第二句对白"
               emotion: "情绪"
               source: "第1章原对话"
           transition: "cut_to"
-    - act_number: 2
-      title: "下一幕标题"
-      summary: "本幕涵盖的内容概要"
-      scenes:
-        - scene_number: 3
-          scene_title: "具体场景标题"
-          location_id: "loc_003"
-          time: "日"
-          summary: "本场发生的情节概要"
-          characters_present: ["char_001", "char_003"]
-          beats:
-            - beat_number: 1
-              type: "action"
-              description: "详细的动作/场景描述"
-              source: "第2章"
-            - beat_number: 2
-              type: "narration"
-              description: "旁白叙述"
-              source: "第2章叙述"
-            - beat_number: 3
-              type: "dialogue"
-              character_id: "char_001"
-              character_name: "角色名"
-              dialogue: "原文对白"
-              emotion: "情绪"
-              source: "第2章原对话"
-          transition: "cut_to"
-  notes:
-    adaptation_notes: "改编说明"
-    chapters_to_acts_mapping: "各章节对应的幕/场说明"
 
-直接输出 YAML 内容，不要包含任何解释文字，不要用 ```yaml 包裹。"""
+直接输出完整 YAML，不要省略任何对话，不要用 ```yaml 包裹。"""
 
 # ============================================================
 # RAG 查询改写 Prompt
