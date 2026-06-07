@@ -105,7 +105,7 @@ async def deconstructor_agent(state: AgentState) -> AgentState:
             f"小说解构，{state['novel_text'][:200]}..."
         )
 
-        llm = get_llm(temperature=0.2)
+        llm = get_llm(temperature=0.2, max_tokens=16384)  # 解构输出需要大空间提取所有对话
         prompt = DECONSTRUCTOR_AGENT_PROMPT.format(
             novel_text=state["novel_text"],
             rag_context=rag_context,
