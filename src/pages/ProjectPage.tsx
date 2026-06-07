@@ -357,12 +357,12 @@ export default function ProjectPage() {
           }>
             <div style={{ padding: '24px 0' }}>
               {!generation.isGenerating && currentStep < 0 ? (
-                <div style={{
-                  textAlign: 'center', padding: 60, color: '#999',
-                  background: '#fafbfc', borderRadius: 12, border: '1px dashed #d0d5dd',
-                }}>
-                  <FolderOpenIcon style={{ fontSize: 40, color: '#ccc', marginBottom: 12 }} />
-                  <div>请先在「上传小说」标签页上传内容，然后点击「开始生成剧本」</div>
+                <div className="empty-state">
+                  <FolderOpenIcon className="empty-state-icon" />
+                  <div className="empty-state-title">等待生成</div>
+                  <div className="empty-state-desc">
+                    请先在「上传小说」标签页上传内容，然后点击「开始生成剧本」
+                  </div>
                 </div>
               ) : (
                 <>
@@ -450,11 +450,7 @@ export default function ProjectPage() {
             <div style={{ padding: '8px 0' }}>
               {yamlContent ? (
                 <>
-                  <div style={{
-                    display: 'flex', gap: 8, marginBottom: 16, padding: '12px 16px',
-                    background: '#fafbfc', borderRadius: 10, border: '1px solid #e8ecf4',
-                    flexWrap: 'wrap',
-                  }}>
+                  <div className="script-toolbar">
                     <Button
                       icon={<SaveIcon />}
                       onClick={handleUpdateYaml}
@@ -489,21 +485,13 @@ export default function ProjectPage() {
                     </Button>
                   </div>
 
-                  <Textarea
-                    value={yamlContent}
-                    onChange={(v) => setYamlContent(v as string)}
-                    autosize={{ minRows: 22, maxRows: 60 }}
-                    style={{
-                      fontFamily: "'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace",
-                      fontSize: 13,
-                      lineHeight: 1.7,
-                      borderRadius: 10,
-                      border: '1px solid #e0e0e0',
-                      background: '#1e1e2e',
-                      color: '#cdd6f4',
-                      padding: 20,
-                    }}
-                  />
+                  <div className="script-editor" style={{ borderRadius: 12, overflow: 'hidden' }}>
+                    <Textarea
+                      value={yamlContent}
+                      onChange={(v) => setYamlContent(v as string)}
+                      autosize={{ minRows: 22, maxRows: 60 }}
+                    />
+                  </div>
 
                   {/* 版本历史 */}
                   {versions.length > 0 && (
@@ -533,13 +521,10 @@ export default function ProjectPage() {
                   )}
                 </>
               ) : (
-                <div style={{
-                  textAlign: 'center', padding: 60, color: '#999',
-                  background: '#fafbfc', borderRadius: 12, border: '1px dashed #d0d5dd',
-                }}>
-                  <FileIcon style={{ fontSize: 40, color: '#ccc', marginBottom: 12 }} />
-                  <div style={{ fontSize: 15 }}>暂无剧本内容</div>
-                  <div style={{ fontSize: 13, marginTop: 4 }}>
+                <div className="empty-state">
+                  <FileIcon className="empty-state-icon" />
+                  <div className="empty-state-title">暂无剧本内容</div>
+                  <div className="empty-state-desc">
                     请先在「上传小说」标签页上传内容并生成剧本
                   </div>
                 </div>
